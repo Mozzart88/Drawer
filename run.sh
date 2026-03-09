@@ -39,6 +39,10 @@ cat > "$APP_DIR/Info.plist" << 'EOF'
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Drawer needs screen access to record your screen.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Drawer needs microphone access to record audio.</string>
 </dict>
 </plist>
 EOF
