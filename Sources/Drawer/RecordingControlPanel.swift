@@ -181,7 +181,6 @@ class RecordingControlPanel: NSPanel {
                 await MainActor.run {
                     self.shareableContent = content
                     self.populateWindowPicker(windows: content.windows)
-                    self.statusLabel.stringValue = "Ready. \(content.windows.count) windows available."
                     self.recordButton.isEnabled = true
                 }
             } catch {
@@ -194,16 +193,36 @@ class RecordingControlPanel: NSPanel {
     }
 
     private func populateWindowPicker(windows: [SCWindow]) {
+        // Keep only normal on-screen windows belonging to a real app
+        let visible = windows.filter {
+            $0.isOnScreen &&
+            $0.windowLayer == 0 &&
+            $0.owningApplication != nil &&
+            $0.frame.width > 50 &&
+            $0.frame.height > 50
+        }
+
+        let appWindows = visible.sorted {
+            let a0 = $0.owningApplication!.applicationName
+            let a1 = $1.owningApplication!.applicationName
+            let cmp = a0.localizedCaseInsensitiveCompare(a1)
+            if cmp != .orderedSame { return cmp == .orderedAscending }
+            let t0 = $0.title ?? ""
+            let t1 = $1.title ?? ""
+            return t0.localizedCaseInsensitiveCompare(t1) == .orderedAscending
+        }
+
         windowPicker.removeAllItems()
         windowPicker.addItem(withTitle: "Click to pick…")
-        for window in windows {
-            let appName = window.owningApplication?.applicationName ?? "Unknown"
+        for window in appWindows {
+            let appName = window.owningApplication!.applicationName
             let winTitle = window.title.flatMap { $0.isEmpty ? nil : $0 } ?? appName
-            let title = "\(appName) — \(winTitle)"
-            windowPicker.addItem(withTitle: title)
+            let label = winTitle == appName ? appName : "\(appName) — \(winTitle)"
+            windowPicker.addItem(withTitle: label)
             windowPicker.lastItem?.representedObject = window
         }
         windowPicker.isEnabled = modeSegment.selectedSegment == 1
+        statusLabel.stringValue = "Ready. \(appWindows.count) windows available."
     }
 
     // MARK: - Actions
