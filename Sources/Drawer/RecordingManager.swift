@@ -25,6 +25,7 @@ class RecordingManager: NSObject {
 
     private var recordingStartDate: Date = Date()
     private var sessionStarted = false
+    private var pendingAudioBuffers: [CMSampleBuffer] = []
 
     // MARK: - Public API
 
@@ -39,6 +40,7 @@ class RecordingManager: NSObject {
 
         recordingStartDate = Date()
         sessionStarted = false
+        pendingAudioBuffers = []
 
         // H.264 requires even dimensions
         let encodeWidth = (width / 2) * 2
@@ -127,12 +129,12 @@ class RecordingManager: NSObject {
         let scStream = SCStream(filter: filter, configuration: config, delegate: self)
         self.stream = scStream
         try scStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writingQueue)
-        try await scStream.startCapture()
 
-        // Microphone audio
+        // Start audio capture BEFORE SCStream so it warms up in parallel
         if let audioDevice = audioDevice {
             startAudioCapture(device: audioDevice)
         }
+        try await scStream.startCapture()
 
         state = .recording
         DispatchQueue.main.async { [weak self] in self?.onStateChanged?(.recording) }
@@ -228,6 +230,14 @@ extension RecordingManager: SCStreamOutput {
         if !sessionStarted {
             sessionStarted = true
             writer.startSession(atSourceTime: pts)
+            // Flush any audio that arrived before the first video frame
+            for buf in pendingAudioBuffers {
+                let bufPts = CMSampleBufferGetPresentationTimeStamp(buf)
+                if bufPts >= pts, let audioIn = audioInput, audioIn.isReadyForMoreMediaData {
+                    audioIn.append(buf)
+                }
+            }
+            pendingAudioBuffers = []
         }
 
         if let adaptor = videoAdaptor, adaptor.assetWriterInput.isReadyForMoreMediaData {
@@ -252,11 +262,18 @@ extension RecordingManager: SCStreamDelegate {
 extension RecordingManager: AVCaptureAudioDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard state == .recording,
-              sessionStarted,
               let writer = assetWriter,
               writer.status == .writing,
-              let audioInput = audioInput,
-              audioInput.isReadyForMoreMediaData else { return }
+              let audioInput = audioInput else { return }
+
+        if !sessionStarted {
+            if pendingAudioBuffers.count < 200 { // ~2 s safety cap
+                pendingAudioBuffers.append(sampleBuffer)
+            }
+            return
+        }
+
+        guard audioInput.isReadyForMoreMediaData else { return }
         audioInput.append(sampleBuffer)
     }
 }
