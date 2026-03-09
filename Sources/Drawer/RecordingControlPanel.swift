@@ -21,10 +21,10 @@ class RecordingControlPanel: NSPanel {
     private var windowPickerOverlay: WindowPickerOverlay?
 
     init() {
-        let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+        let dir = RecordingPreferences.saveDirectory
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        outputURL = desktop.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
+        outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
 
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 310),
@@ -165,6 +165,15 @@ class RecordingControlPanel: NSPanel {
             audioSourcePicker.addItem(withTitle: device.localizedName)
         }
 
+        // Restore saved audio device selection
+        if let savedUID = RecordingPreferences.audioDeviceUID,
+           let idx = audioDevices.firstIndex(where: { $0.uniqueID == savedUID }) {
+            audioSourcePicker.selectItem(at: idx + 1) // +1 for leading "None" item
+        }
+
+        // Restore presentation mode checkbox
+        presentationModeCheck.state = RecordingPreferences.presentationMode ? .on : .off
+
         // Shareable content (async — requires screen recording permission)
         Task {
             do {
@@ -211,6 +220,7 @@ class RecordingControlPanel: NSPanel {
             guard let self = self, response == .OK, let url = panel.url else { return }
             self.outputURL = url
             self.outputPathField.stringValue = url.path
+            RecordingPreferences.saveDirectory = url.deletingLastPathComponent()
         }
     }
 
@@ -260,6 +270,10 @@ class RecordingControlPanel: NSPanel {
             width = max(2, (Int(scWindow.frame.width * scale) / 2) * 2)
             height = max(2, (Int(scWindow.frame.height * scale) / 2) * 2)
         }
+
+        RecordingPreferences.presentationMode = presentationModeCheck.state == .on
+        RecordingPreferences.audioDeviceUID = audioDevice?.uniqueID
+        RecordingPreferences.saveDirectory = outputURL.deletingLastPathComponent()
 
         orderOut(nil)
         onRecord?(filter, width, height, audioDevice, outputURL, isPresentationMode)
