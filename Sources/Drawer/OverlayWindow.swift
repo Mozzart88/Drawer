@@ -19,4 +19,19 @@ class OverlayWindow: NSWindow {
         isReleasedWhenClosed = false
         alphaValue = 1.0
     }
+
+    private(set) var isGreenScreenOn = false
+
+    func toggleGreenScreen() {
+        isGreenScreenOn.toggle()
+        backgroundColor = isGreenScreenOn ? GreenScreenPreferences.color : .clear
+        isOpaque = isGreenScreenOn
+    }
+
+    func updateGreenScreenColor(_ color: NSColor) {
+        GreenScreenPreferences.color = color
+        if isGreenScreenOn {
+            backgroundColor = color
+        }
+    }
 }

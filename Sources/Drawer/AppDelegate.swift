@@ -13,6 +13,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var presentationModeManager: PresentationModeManager!
     private var recordingControlPanel: RecordingControlPanel?
     private var recordingMenuItem: NSMenuItem!
+    private var greenScreenMenuItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -43,7 +44,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             toggleDrawing: { [weak self] in self?.toggleDrawing() },
             clearScreen: { [weak self] in self?.drawingView.clearStrokes() },
             toggleColorWheel: { [weak self] in self?.toggleColorWheel() },
-            toggleRecording: { [weak self] in self?.toggleRecording() }
+            toggleRecording: { [weak self] in self?.toggleRecording() },
+            toggleGreenScreen: { [weak self] in self?.toggleGreenScreen() }
         )
 
         // Status bar
@@ -57,6 +59,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Toggle Drawing (F9)", action: #selector(toggleDrawing), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Clear (F10)", action: #selector(clearScreen), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Color Wheel (F8)", action: #selector(toggleColorWheel), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        greenScreenMenuItem = NSMenuItem(title: "Green Screen (F5)", action: #selector(toggleGreenScreen), keyEquivalent: "")
+        menu.addItem(greenScreenMenuItem)
+        menu.addItem(NSMenuItem(title: "Green Screen Color…", action: #selector(showGreenScreenColor), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         recordingMenuItem = NSMenuItem(title: "Start Recording (F7)", action: #selector(toggleRecording), keyEquivalent: "")
         menu.addItem(recordingMenuItem)
@@ -82,6 +88,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             colorWheelPanel.makeKeyAndOrderFront(nil)
         }
+    }
+
+    @objc func toggleGreenScreen() {
+        overlayWindow.toggleGreenScreen()
+        greenScreenMenuItem.title = overlayWindow.isGreenScreenOn
+            ? "Green Screen On (F5)"
+            : "Green Screen (F5)"
+    }
+
+    @objc func showGreenScreenColor() {
+        let panel = NSColorPanel.shared
+        panel.color = GreenScreenPreferences.color
+        panel.isContinuous = true
+        panel.setTarget(self)
+        panel.setAction(#selector(colorPanelDidChange(_:)))
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func colorPanelDidChange(_ sender: NSColorPanel) {
+        overlayWindow.updateGreenScreenColor(sender.color)
     }
 
     @objc func toggleRecording() {
