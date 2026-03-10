@@ -4,8 +4,8 @@ import ScreenCaptureKit
 
 class RecordingControlPanel: NSPanel {
 
-    // Called when user clicks Record — passes filter, pixel dimensions, audio device, output URL, presentation mode flag
-    var onRecord: ((SCContentFilter, Int, Int, AVCaptureDevice?, URL, Bool) -> Void)?
+    // Called when user clicks Record — passes filter, pixel dimensions, audio device, output URL, presentation mode flag, sourceRect
+    var onRecord: ((SCContentFilter, Int, Int, AVCaptureDevice?, URL, Bool, CGRect?) -> Void)?
 
     private var modeSegment: NSSegmentedControl!
     private var windowPicker: NSPopUpButton!
@@ -270,6 +270,8 @@ class RecordingControlPanel: NSPanel {
         let width: Int
         let height: Int
 
+        let sourceRect: CGRect?
+
         if modeSegment.selectedSegment == 0 {
             // Full screen — use NSScreen physical pixels (SCDisplay.width is in logical points)
             guard let display = content.displays.first else { return }
@@ -278,24 +280,53 @@ class RecordingControlPanel: NSPanel {
             let scale = screen.backingScaleFactor
             width = (Int(screen.frame.width * scale) / 2) * 2
             height = (Int(screen.frame.height * scale) / 2) * 2
+            sourceRect = nil
         } else {
             // Selected window — scWindow.frame is in points, convert to pixels
             guard let scWindow = selectedSCWindow() else {
                 statusLabel.stringValue = "Please select a window."
                 return
             }
-            filter = SCContentFilter(desktopIndependentWindow: scWindow)
+            guard let (wFilter, sRect) = makeWindowFilter(for: scWindow) else { return }
+            filter = wFilter
+            sourceRect = sRect
             let scale = NSScreen.main?.backingScaleFactor ?? 2.0
             width = max(2, (Int(scWindow.frame.width * scale) / 2) * 2)
             height = max(2, (Int(scWindow.frame.height * scale) / 2) * 2)
+            RecordingPreferences.windowBundleID = scWindow.owningApplication?.bundleIdentifier
+            RecordingPreferences.windowTitle = scWindow.title
         }
 
+        RecordingPreferences.recordingMode = modeSegment.selectedSegment
         RecordingPreferences.presentationMode = presentationModeCheck.state == .on
         RecordingPreferences.audioDeviceUID = audioDevice?.uniqueID
         RecordingPreferences.saveDirectory = outputURL.deletingLastPathComponent()
 
         orderOut(nil)
-        onRecord?(filter, width, height, audioDevice, outputURL, isPresentationMode)
+        onRecord?(filter, width, height, audioDevice, outputURL, isPresentationMode, sourceRect)
+    }
+
+    private func makeWindowFilter(for scWindow: SCWindow) -> (SCContentFilter, CGRect)? {
+        guard let content = shareableContent,
+              let display = content.displays.first(where: { $0.frame.intersects(scWindow.frame) })
+                  ?? content.displays.first else { return nil }
+
+        let myBundleID = Bundle.main.bundleIdentifier ?? ""
+        let overlayWindows = content.windows.filter {
+            $0.owningApplication?.bundleIdentifier == myBundleID
+        }
+
+        let filter = SCContentFilter(display: display, including: [scWindow] + overlayWindows)
+
+        let dispFrame = display.frame
+        let winFrame = scWindow.frame
+        let sourceRect = CGRect(
+            x: winFrame.minX - dispFrame.minX,
+            y: dispFrame.maxY - winFrame.maxY,
+            width: winFrame.width,
+            height: winFrame.height
+        )
+        return (filter, sourceRect)
     }
 
     private func selectedSCWindow() -> SCWindow? {
@@ -314,11 +345,13 @@ class RecordingControlPanel: NSPanel {
                     self?.makeKeyAndOrderFront(nil)
                     return
                 }
-                let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+                guard let (wFilter, sRect) = self?.makeWindowFilter(for: scWindow) else { return }
                 let scale = NSScreen.main?.backingScaleFactor ?? 2.0
                 let width = max(2, (Int(scWindow.frame.width * scale) / 2) * 2)
                 let height = max(2, (Int(scWindow.frame.height * scale) / 2) * 2)
-                self?.onRecord?(filter, width, height, audioDevice, self?.outputURL ?? URL(fileURLWithPath: ""), presentationMode)
+                RecordingPreferences.windowBundleID = scWindow.owningApplication?.bundleIdentifier
+                RecordingPreferences.windowTitle = scWindow.title
+                self?.onRecord?(wFilter, width, height, audioDevice, self?.outputURL ?? URL(fileURLWithPath: ""), presentationMode, sRect)
             }
         }
         overlay.makeKeyAndOrderFront(nil)

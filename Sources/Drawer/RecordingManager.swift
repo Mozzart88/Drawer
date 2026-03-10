@@ -34,7 +34,8 @@ class RecordingManager: NSObject {
         width: Int,
         height: Int,
         audioDevice: AVCaptureDevice?,
-        outputURL: URL
+        outputURL: URL,
+        sourceRect: CGRect? = nil
     ) async throws {
         guard state == .idle else { return }
 
@@ -125,6 +126,9 @@ class RecordingManager: NSObject {
         config.queueDepth = 8
         config.showsCursor = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
+        if let sourceRect = sourceRect {
+            config.sourceRect = sourceRect
+        }
 
         let scStream = SCStream(filter: filter, configuration: config, delegate: self)
         self.stream = scStream

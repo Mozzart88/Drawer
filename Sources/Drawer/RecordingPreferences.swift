@@ -24,4 +24,23 @@ enum RecordingPreferences {
         }
         set { defaults.set(newValue.path, forKey: "drawer.recording.saveDirectory") }
     }
+
+    static var hasPreferences: Bool {
+        defaults.object(forKey: "recordingMode") != nil
+    }
+
+    static var recordingMode: Int {
+        get { defaults.integer(forKey: "recordingMode") }  // 0 = full screen, 1 = window
+        set { defaults.set(newValue, forKey: "recordingMode") }
+    }
+
+    static var windowBundleID: String? {
+        get { defaults.string(forKey: "windowBundleID") }
+        set { defaults.set(newValue, forKey: "windowBundleID") }
+    }
+
+    static var windowTitle: String? {
+        get { defaults.string(forKey: "windowTitle") }
+        set { defaults.set(newValue, forKey: "windowTitle") }
+    }
 }
