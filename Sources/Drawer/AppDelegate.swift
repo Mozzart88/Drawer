@@ -137,7 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         sourceRect: sourceRect
                     )
                 } catch {
-                    DispatchQueue.main.async {
+                    await MainActor.run {
                         self.presentationModeManager.disable()
                         let alert = NSAlert()
                         alert.messageText = "Recording failed"

@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import ScreenCaptureKit
 import CoreMedia
 
@@ -141,7 +141,7 @@ class RecordingManager: NSObject {
         try await scStream.startCapture()
 
         state = .recording
-        DispatchQueue.main.async { [weak self] in self?.onStateChanged?(.recording) }
+        await MainActor.run { [weak self] in self?.onStateChanged?(.recording) }
     }
 
     func stopRecording() async {
@@ -156,7 +156,7 @@ class RecordingManager: NSObject {
 
         await finishWriting()
 
-        DispatchQueue.main.async { [weak self] in self?.onStateChanged?(.idle) }
+        await MainActor.run { [weak self] in self?.onStateChanged?(.idle) }
     }
 
     // MARK: - Private
@@ -200,14 +200,12 @@ class RecordingManager: NSObject {
 
         // finishWriting is async; bridge to structured concurrency
         await withCheckedContinuation { (finish: CheckedContinuation<Void, Never>) in
-            writer.finishWriting {
-                if writer.status == .failed {
-                    print("RecordingManager: finishWriting failed — \(writer.error?.localizedDescription ?? "unknown error")")
-                } else {
-                    print("RecordingManager: file written successfully")
-                }
-                finish.resume()
-            }
+            writer.finishWriting { finish.resume() }
+        }
+        if writer.status == .failed {
+            print("RecordingManager: finishWriting failed — \(writer.error?.localizedDescription ?? "unknown error")")
+        } else {
+            print("RecordingManager: file written successfully")
         }
 
         assetWriter = nil
