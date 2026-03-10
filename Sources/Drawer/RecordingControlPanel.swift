@@ -34,7 +34,7 @@ class RecordingControlPanel: NSPanel {
         )
         title = "Screen Recording"
         isFloatingPanel = true
-        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.floatingWindow)))
+        level = .normal
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
 
@@ -235,7 +235,7 @@ class RecordingControlPanel: NSPanel {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]
         panel.nameFieldStringValue = URL(fileURLWithPath: outputPathField.stringValue).lastPathComponent
-        panel.begin { [weak self] response in
+        panel.beginSheetModal(for: self) { [weak self] response in
             guard let self = self, response == .OK, let url = panel.url else { return }
             self.outputURL = url
             self.outputPathField.stringValue = url.path
