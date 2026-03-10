@@ -8,6 +8,7 @@ class DrawingView: NSView {
     var currentOpacity: CGFloat = 1.0
     var onWidthChanged: ((CGFloat) -> Void)?
     var onOpacityChanged: ((CGFloat) -> Void)?
+    var onTabletProximity: ((NSEvent) -> Void)?
     var isDrawingMode: Bool = false {
         didSet {
             updateTrackingAreas()
@@ -53,21 +54,23 @@ class DrawingView: NSView {
         if isDrawingMode { NSCursor.crosshair.set() }
     }
 
-override func draw(_ dirtyRect: NSRect) {
+    override func tabletProximity(with event: NSEvent) {
+        onTabletProximity?(event)
+        super.tabletProximity(with: event)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.set()
         dirtyRect.fill()
 
-        // Draw all completed strokes
         for stroke in strokes {
             drawStroke(stroke)
         }
 
-        // Draw current in-progress stroke
         if let stroke = currentStroke {
             drawStroke(stroke)
         }
 
-        // Draw size indicator if needed
         if showingSizeIndicator {
             drawSizeIndicator()
         }
@@ -75,12 +78,76 @@ override func draw(_ dirtyRect: NSRect) {
 
     private func drawStroke(_ stroke: StrokeData) {
         guard stroke.points.count >= 1 else { return }
+        switch stroke.source {
+        case .pen:   drawVariableWidthStroke(stroke)
+        case .mouse: drawUniformStroke(stroke)
+        }
+    }
+
+    private func drawUniformStroke(_ stroke: StrokeData) {
         let path = BezierInterpolation.path(from: stroke.points)
         stroke.color.setStroke()
-        path.lineWidth = stroke.width
+        path.lineWidth = stroke.widths.first ?? stroke.baseWidth
         path.lineCapStyle = .round
         path.lineJoinStyle = .round
         path.stroke()
+    }
+
+    private func drawVariableWidthStroke(_ stroke: StrokeData) {
+        let pts = stroke.points
+        let wids = stroke.widths
+
+        // Single point: draw a filled circle
+        if pts.count == 1 {
+            let r = wids[0] / 2.0
+            let rect = NSRect(x: pts[0].x - r, y: pts[0].y - r, width: wids[0], height: wids[0])
+            let circle = NSBezierPath(ovalIn: rect)
+            stroke.color.setFill()
+            circle.fill()
+            return
+        }
+
+        // Build left/right edge arrays for variable-width outline
+        var leftPts: [NSPoint] = []
+        var rightPts: [NSPoint] = []
+
+        for i in 0..<pts.count {
+            let p = pts[i]
+            let r = wids[i] / 2.0
+
+            // Direction vector along stroke at this point
+            let dir: NSPoint
+            if i == 0 {
+                dir = normalize(dx: pts[1].x - pts[0].x, dy: pts[1].y - pts[0].y)
+            } else if i == pts.count - 1 {
+                dir = normalize(dx: pts[i].x - pts[i-1].x, dy: pts[i].y - pts[i-1].y)
+            } else {
+                let d1 = normalize(dx: pts[i].x - pts[i-1].x, dy: pts[i].y - pts[i-1].y)
+                let d2 = normalize(dx: pts[i+1].x - pts[i].x, dy: pts[i+1].y - pts[i].y)
+                dir = normalize(dx: d1.x + d2.x, dy: d1.y + d2.y)
+            }
+
+            // Perpendicular offset
+            let perp = NSPoint(x: -dir.y, y: dir.x)
+            leftPts.append(NSPoint(x: p.x + perp.x * r, y: p.y + perp.y * r))
+            rightPts.append(NSPoint(x: p.x - perp.x * r, y: p.y - perp.y * r))
+        }
+
+        // Build closed polygon: left edge forward, right edge backward
+        let outline = NSBezierPath()
+        outline.move(to: leftPts[0])
+        for pt in leftPts.dropFirst() { outline.line(to: pt) }
+        for pt in rightPts.reversed() { outline.line(to: pt) }
+        outline.close()
+
+        stroke.color.setFill()
+        outline.fill()
+    }
+
+    private func normalize(dx: CGFloat, dy: CGFloat) -> NSPoint {
+        let len = sqrt(dx * dx + dy * dy)
+        guard len > 0 else { return NSPoint(x: 1, y: 0) }
+        return NSPoint(x: dx / len, y: dy / len)
     }
 
     private func drawSizeIndicator() {
@@ -102,13 +169,30 @@ override func draw(_ dirtyRect: NSRect) {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        currentStroke = StrokeData(startPoint: point, color: currentColor, width: currentWidth)
+        let isPen = TabletInput.isPenEvent(event)
+        let color = currentColor.withAlphaComponent(currentOpacity)
+        let startWidth = isPen
+            ? TabletInput.pointWidth(for: event, baseWidth: currentWidth)
+            : currentWidth
+        currentStroke = StrokeData(
+            startPoint: point,
+            startWidth: startWidth,
+            color: color,
+            baseWidth: currentWidth,
+            source: isPen ? .pen : .mouse
+        )
         setNeedsDisplay(bounds)
     }
 
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        currentStroke?.points.append(point)
+        let width: CGFloat
+        if let stroke = currentStroke, stroke.source == .pen {
+            width = TabletInput.pointWidth(for: event, baseWidth: stroke.baseWidth)
+        } else {
+            width = currentWidth
+        }
+        currentStroke?.append(point: point, width: width)
         setNeedsDisplay(bounds)
     }
 

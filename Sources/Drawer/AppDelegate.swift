@@ -14,6 +14,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingControlPanel: RecordingControlPanel?
     private var recordingMenuItem: NSMenuItem!
     private var greenScreenMenuItem: NSMenuItem!
+    private var tabletProximityMonitors: [Any] = []
+    private var drawingAutoEnabledByTablet = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -24,6 +26,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         drawingView.autoresizingMask = [.width, .height]
         overlayWindow.contentView!.addSubview(drawingView)
         overlayWindow.makeKeyAndOrderFront(nil)
+
+        // Tablet proximity
+        drawingView.onTabletProximity = { [weak self] in self?.handleProximityEvent($0) }
+        setupTabletProximityMonitor()
 
         // Color wheel
         colorWheelPanel = ColorWheelPanel(drawingView: drawingView)
@@ -73,9 +79,53 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func toggleDrawing() {
-        drawingView.isDrawingMode.toggle()
-        overlayWindow.ignoresMouseEvents = !drawingView.isDrawingMode
+        drawingAutoEnabledByTablet = false   // manual action overrides auto state
+        drawingView.isDrawingMode ? disableDrawing() : enableDrawing()
+    }
+
+    private func enableDrawing() {
+        drawingView.isDrawingMode = true
+        overlayWindow.ignoresMouseEvents = false
         updateStatusBarIcon()
+    }
+
+    private func disableDrawing() {
+        drawingView.isDrawingMode = false
+        overlayWindow.ignoresMouseEvents = true
+        updateStatusBarIcon()
+    }
+
+    private func setupTabletProximityMonitor() {
+        let handler: (NSEvent) -> Void = { [weak self] event in
+            DispatchQueue.main.async { self?.handleProximityEvent(event) }
+        }
+        // Global: fires when other apps are focused (pen hovers before drawing starts)
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .tabletProximity, handler: handler) {
+            tabletProximityMonitors.append(m)
+        }
+        // Local: fires when our app is focused (pen leaves while drawing is active)
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .tabletProximity, handler: { event in
+            handler(event); return event
+        }) {
+            tabletProximityMonitors.append(m)
+        }
+    }
+
+    private func handleProximityEvent(_ event: NSEvent) {
+        // Don't filter by pointingDeviceType — Sidecar may report .unknown on leave events
+        if event.isEnteringProximity {
+            if !drawingView.isDrawingMode {
+                drawingAutoEnabledByTablet = true
+                enableDrawing()
+            }
+        } else if drawingAutoEnabledByTablet {
+            drawingAutoEnabledByTablet = false
+            disableDrawing()
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        tabletProximityMonitors.forEach { NSEvent.removeMonitor($0) }
     }
 
     @objc func clearScreen() {
