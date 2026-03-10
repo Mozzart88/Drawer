@@ -8,13 +8,16 @@ class HotkeyManager {
     var toggleDrawing: (() -> Void)?
     var clearScreen: (() -> Void)?
     var toggleColorWheel: (() -> Void)?
+    var toggleRecording: (() -> Void)?
 
     init(toggleDrawing: @escaping () -> Void,
          clearScreen: @escaping () -> Void,
-         toggleColorWheel: @escaping () -> Void) {
+         toggleColorWheel: @escaping () -> Void,
+         toggleRecording: @escaping () -> Void) {
         self.toggleDrawing = toggleDrawing
         self.clearScreen = clearScreen
         self.toggleColorWheel = toggleColorWheel
+        self.toggleRecording = toggleRecording
 
         HotkeyManager.shared = self
         registerHotkeys()
@@ -41,6 +44,7 @@ class HotkeyManager {
                 case 1: HotkeyManager.shared?.toggleDrawing?()
                 case 2: HotkeyManager.shared?.clearScreen?()
                 case 3: HotkeyManager.shared?.toggleColorWheel?()
+                case 4: HotkeyManager.shared?.toggleRecording?()
                 default: break
                 }
             }
@@ -56,11 +60,12 @@ class HotkeyManager {
             &eventHandlerRef
         )
 
-        // F9 = kVK_F9 = 101, F10 = kVK_F10 = 109, F8 = kVK_F8 = 100
+        // F9 = kVK_F9 = 101, F10 = kVK_F10 = 109, F8 = kVK_F8 = 100, F7 = kVK_F7 = 98
         let keys: [(UInt32, UInt32, UInt32)] = [
             (UInt32(kVK_F9), 0, 1),
             (UInt32(kVK_F10), 0, 2),
-            (UInt32(kVK_F8), 0, 3)
+            (UInt32(kVK_F8), 0, 3),
+            (UInt32(kVK_F7), 0, 4)
         ]
 
         for (keyCode, modifiers, id) in keys {

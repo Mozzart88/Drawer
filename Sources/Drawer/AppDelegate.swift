@@ -1,4 +1,6 @@
 import AppKit
+import AVFoundation
+import ScreenCaptureKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var overlayWindow: OverlayWindow!
@@ -6,6 +8,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hotkeyManager: HotkeyManager!
     var colorWheelPanel: ColorWheelPanel!
     var statusItem: NSStatusItem!
+
+    var recordingManager: RecordingManager!
+    var presentationModeManager: PresentationModeManager!
+    private var recordingControlPanel: RecordingControlPanel?
+    private var recordingMenuItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -20,11 +27,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Color wheel
         colorWheelPanel = ColorWheelPanel(drawingView: drawingView)
 
+        // Recording
+        recordingManager = RecordingManager()
+        presentationModeManager = PresentationModeManager()
+        recordingManager.onStateChanged = { [weak self] state in
+            self?.updateStatusBarIcon()
+            self?.updateRecordingMenuItem()
+            if state == .idle {
+                self?.presentationModeManager.disable()
+            }
+        }
+
         // Hotkeys
         hotkeyManager = HotkeyManager(
             toggleDrawing: { [weak self] in self?.toggleDrawing() },
             clearScreen: { [weak self] in self?.drawingView.clearStrokes() },
-            toggleColorWheel: { [weak self] in self?.toggleColorWheel() }
+            toggleColorWheel: { [weak self] in self?.toggleColorWheel() },
+            toggleRecording: { [weak self] in self?.toggleRecording() }
         )
 
         // Status bar
@@ -39,6 +58,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Clear (F10)", action: #selector(clearScreen), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Color Wheel (F8)", action: #selector(toggleColorWheel), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
+        recordingMenuItem = NSMenuItem(title: "Start Recording (F7)", action: #selector(toggleRecording), keyEquivalent: "")
+        menu.addItem(recordingMenuItem)
+        menu.addItem(NSMenuItem(title: "Recording Preferences…", action: #selector(showRecordingPreferences), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
@@ -46,12 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleDrawing() {
         drawingView.isDrawingMode.toggle()
         overlayWindow.ignoresMouseEvents = !drawingView.isDrawingMode
-        if let button = statusItem.button {
-            let name = drawingView.isDrawingMode ? "pencil.tip" : "pencil.slash"
-            let img = NSImage(systemSymbolName: name, accessibilityDescription: "Drawer")
-            img?.isTemplate = true
-            button.image = img
-        }
+        updateStatusBarIcon()
     }
 
     @objc func clearScreen() {
@@ -64,5 +82,160 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             colorWheelPanel.makeKeyAndOrderFront(nil)
         }
+    }
+
+    @objc func toggleRecording() {
+        if recordingManager.state == .recording {
+            Task { await recordingManager.stopRecording() }
+        } else if RecordingPreferences.hasPreferences {
+            Task { await resumeRecording() }
+        } else {
+            showRecordingPanel()
+        }
+    }
+
+    private func showRecordingPanel() {
+        let panel = RecordingControlPanel()
+        recordingControlPanel = panel
+        panel.onRecord = { [weak self] filter, width, height, audioDevice, outputURL, presentationMode, sourceRect in
+            guard let self = self else { return }
+            if presentationMode { self.presentationModeManager.enable() }
+            Task {
+                do {
+                    try await self.recordingManager.startRecording(
+                        filter: filter,
+                        width: width,
+                        height: height,
+                        audioDevice: audioDevice,
+                        outputURL: outputURL,
+                        sourceRect: sourceRect
+                    )
+                } catch {
+                    DispatchQueue.main.async {
+                        self.presentationModeManager.disable()
+                        let alert = NSAlert()
+                        alert.messageText = "Recording failed"
+                        alert.informativeText = error.localizedDescription
+                        alert.runModal()
+                    }
+                }
+            }
+        }
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func resumeRecording() async {
+        let dir = RecordingPreferences.saveDirectory
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        let outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
+
+        let audioDevice: AVCaptureDevice? = RecordingPreferences.audioDeviceUID.flatMap { uid in
+            let deviceTypes: [AVCaptureDevice.DeviceType]
+            if #available(macOS 14.0, *) { deviceTypes = [.microphone] }
+            else { deviceTypes = [.builtInMicrophone] }
+            return AVCaptureDevice.DiscoverySession(
+                deviceTypes: deviceTypes, mediaType: .audio, position: .unspecified
+            ).devices.first(where: { $0.uniqueID == uid })
+        }
+
+        let presentationMode = RecordingPreferences.presentationMode
+
+        do {
+            let content = try await SCShareableContent.current
+            let filter: SCContentFilter
+            let width: Int
+            let height: Int
+            let sourceRect: CGRect?
+
+            if RecordingPreferences.recordingMode == 0 {
+                guard let display = content.displays.first else { return }
+                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                let screen = NSScreen.main ?? NSScreen.screens[0]
+                let scale = screen.backingScaleFactor
+                width = (Int(screen.frame.width * scale) / 2) * 2
+                height = (Int(screen.frame.height * scale) / 2) * 2
+                sourceRect = nil
+            } else {
+                guard let scWindow = findSavedWindow(in: content.windows) else {
+                    await MainActor.run { showRecordingPanel() }
+                    return
+                }
+                guard let (wFilter, sRect) = makeWindowFilter(for: scWindow, content: content) else { return }
+                filter = wFilter
+                sourceRect = sRect
+                let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+                width = max(2, (Int(scWindow.frame.width * scale) / 2) * 2)
+                height = max(2, (Int(scWindow.frame.height * scale) / 2) * 2)
+            }
+
+            await MainActor.run { if presentationMode { presentationModeManager.enable() } }
+            try await recordingManager.startRecording(
+                filter: filter, width: width, height: height,
+                audioDevice: audioDevice, outputURL: outputURL, sourceRect: sourceRect
+            )
+        } catch {
+            await MainActor.run {
+                let alert = NSAlert()
+                alert.messageText = "Recording failed"
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+            }
+        }
+    }
+
+    private func findSavedWindow(in windows: [SCWindow]) -> SCWindow? {
+        guard let bundleID = RecordingPreferences.windowBundleID else { return nil }
+        let candidates = windows.filter {
+            $0.owningApplication?.bundleIdentifier == bundleID &&
+            $0.isOnScreen && $0.windowLayer == 0 &&
+            $0.frame.width > 50 && $0.frame.height > 50
+        }
+        if let title = RecordingPreferences.windowTitle {
+            return candidates.first(where: { $0.title == title }) ?? candidates.first
+        }
+        return candidates.first
+    }
+
+    private func makeWindowFilter(for scWindow: SCWindow, content: SCShareableContent) -> (SCContentFilter, CGRect)? {
+        guard let display = content.displays.first(where: { $0.frame.intersects(scWindow.frame) })
+                  ?? content.displays.first else { return nil }
+        let myBundleID = Bundle.main.bundleIdentifier ?? ""
+        let overlayWindows = content.windows.filter {
+            $0.owningApplication?.bundleIdentifier == myBundleID
+        }
+        let filter = SCContentFilter(display: display, including: [scWindow] + overlayWindows)
+        let dispFrame = display.frame
+        let winFrame = scWindow.frame
+        let sourceRect = CGRect(
+            x: winFrame.minX - dispFrame.minX,
+            y: dispFrame.maxY - winFrame.maxY,
+            width: winFrame.width,
+            height: winFrame.height
+        )
+        return (filter, sourceRect)
+    }
+
+    @objc private func showRecordingPreferences() {
+        showRecordingPanel()
+    }
+
+    private func updateStatusBarIcon() {
+        guard let button = statusItem.button else { return }
+        let name: String
+        if recordingManager.state == .recording {
+            name = "record.circle.fill"
+        } else {
+            name = drawingView.isDrawingMode ? "pencil.tip" : "pencil.slash"
+        }
+        let img = NSImage(systemSymbolName: name, accessibilityDescription: "Drawer")
+        img?.isTemplate = recordingManager.state != .recording
+        button.image = img
+    }
+
+    private func updateRecordingMenuItem() {
+        let isRecording = recordingManager.state == .recording
+        recordingMenuItem.title = isRecording ? "Stop Recording (F7)" : "Start Recording (F7)"
     }
 }
