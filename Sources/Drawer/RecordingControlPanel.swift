@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 import ScreenCaptureKit
 
-class RecordingControlPanel: NSPanel {
+class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
 
     // Called when user clicks Record — passes filter, pixel dimensions, audio device, output URL, presentation mode flag, sourceRect
     var onRecord: ((SCContentFilter, Int, Int, AVCaptureDevice?, URL, Bool, CGRect?) -> Void)?
@@ -12,8 +12,18 @@ class RecordingControlPanel: NSPanel {
     private var audioSourcePicker: NSPopUpButton!
     private var outputPathField: NSTextField!
     private var presentationModeCheck: NSButton!
+    private var keyCastCheck: NSButton!
+    private var keyCastLifetimeField: NSTextField!
+    private var keyCastLifetimeRow: NSView!
+    private var keyCastKeyFontField: NSTextField!
+    private var keyCastKeyFontRow: NSView!
+    private var keyCastModFontField: NSTextField!
+    private var keyCastModFontRow: NSView!
+    private var keyCastHintLabel: NSTextField!
     private var recordButton: NSButton!
     private var statusLabel: NSTextField!
+
+    private var keyCastPreview: KeyCastOverlay?
 
     private var shareableContent: SCShareableContent?
     private var audioDevices: [AVCaptureDevice] = []
@@ -27,7 +37,7 @@ class RecordingControlPanel: NSPanel {
         outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
 
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 310),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 488),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -46,14 +56,14 @@ class RecordingControlPanel: NSPanel {
     // MARK: - UI Setup
 
     private func setupUI() {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 310))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 488))
         contentView = content
 
         let lx: CGFloat = 10
         let lw: CGFloat = 90
         let cx: CGFloat = 108
         let cw: CGFloat = 282
-        var y: CGFloat = 268
+        var y: CGFloat = 446
         let rh: CGFloat = 26
         let rs: CGFloat = 38
 
@@ -107,6 +117,79 @@ class RecordingControlPanel: NSPanel {
         content.addSubview(presentationModeCheck)
         y -= rs - 4
 
+        // Key casting toggle
+        keyCastCheck = NSButton(frame: NSRect(x: cx, y: y + 2, width: cw, height: 22))
+        keyCastCheck.setButtonType(.switch)
+        keyCastCheck.title = "Show Key Casting"
+        keyCastCheck.target = self
+        keyCastCheck.action = #selector(keyCastToggled)
+        content.addSubview(keyCastCheck)
+        y -= rs - 4
+
+        // Key visible for: [field] sec  (indented row)
+        let lifetimeRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        keyCastLifetimeRow = lifetimeRow
+        let lifetimeLbl = NSTextField(labelWithString: "Key visible for:")
+        lifetimeLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        lifetimeLbl.font = NSFont.systemFont(ofSize: 13)
+        lifetimeRow.addSubview(lifetimeLbl)
+        keyCastLifetimeField = NSTextField(frame: NSRect(x: 106, y: 0, width: 50, height: 22))
+        keyCastLifetimeField.stringValue = "1.5"
+        keyCastLifetimeField.isEditable = true
+        lifetimeRow.addSubview(keyCastLifetimeField)
+        let secLbl = NSTextField(labelWithString: "sec")
+        secLbl.frame = NSRect(x: 162, y: 1, width: 40, height: 20)
+        secLbl.font = NSFont.systemFont(ofSize: 13)
+        lifetimeRow.addSubview(secLbl)
+        content.addSubview(lifetimeRow)
+        y -= rs - 4
+
+        // Key font size: [field] pt  (indented row)
+        let keyFontRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        keyCastKeyFontRow = keyFontRow
+        let keyFontLbl = NSTextField(labelWithString: "Key font size:")
+        keyFontLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        keyFontLbl.font = NSFont.systemFont(ofSize: 13)
+        keyFontRow.addSubview(keyFontLbl)
+        keyCastKeyFontField = NSTextField(frame: NSRect(x: 106, y: 0, width: 50, height: 22))
+        keyCastKeyFontField.stringValue = "20"
+        keyCastKeyFontField.isEditable = true
+        keyCastKeyFontField.delegate = self
+        keyFontRow.addSubview(keyCastKeyFontField)
+        let keyFontPtLbl = NSTextField(labelWithString: "pt")
+        keyFontPtLbl.frame = NSRect(x: 162, y: 1, width: 30, height: 20)
+        keyFontPtLbl.font = NSFont.systemFont(ofSize: 13)
+        keyFontRow.addSubview(keyFontPtLbl)
+        content.addSubview(keyFontRow)
+        y -= rs - 4
+
+        // Modifier font size: [field] pt  (indented row)
+        let modFontRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        keyCastModFontRow = modFontRow
+        let modFontLbl = NSTextField(labelWithString: "Modifier font size:")
+        modFontLbl.frame = NSRect(x: 0, y: 1, width: 120, height: 20)
+        modFontLbl.font = NSFont.systemFont(ofSize: 13)
+        modFontRow.addSubview(modFontLbl)
+        keyCastModFontField = NSTextField(frame: NSRect(x: 126, y: 0, width: 50, height: 22))
+        keyCastModFontField.stringValue = "10"
+        keyCastModFontField.isEditable = true
+        keyCastModFontField.delegate = self
+        modFontRow.addSubview(keyCastModFontField)
+        let modFontPtLbl = NSTextField(labelWithString: "pt")
+        modFontPtLbl.frame = NSRect(x: 182, y: 1, width: 30, height: 20)
+        modFontPtLbl.font = NSFont.systemFont(ofSize: 13)
+        modFontRow.addSubview(modFontPtLbl)
+        content.addSubview(modFontRow)
+        y -= rs - 4
+
+        // Hint label
+        keyCastHintLabel = NSTextField(labelWithString: "Drag the overlay to position it")
+        keyCastHintLabel.frame = NSRect(x: cx + 16, y: y + 2, width: cw - 16, height: 20)
+        keyCastHintLabel.font = NSFont.systemFont(ofSize: 11)
+        keyCastHintLabel.textColor = .secondaryLabelColor
+        content.addSubview(keyCastHintLabel)
+        y -= rs - 4
+
         // Status label
         statusLabel = NSTextField(frame: NSRect(x: lx, y: y, width: 380, height: 18))
         statusLabel.isEditable = false
@@ -134,6 +217,15 @@ class RecordingControlPanel: NSPanel {
         recordButton.target = self
         recordButton.action = #selector(startRecording)
         content.addSubview(recordButton)
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField, let overlay = keyCastPreview else { return }
+        if field === keyCastKeyFontField, let v = Double(field.stringValue), v > 0 {
+            overlay.keyFontSize = CGFloat(v)
+        } else if field === keyCastModFontField, let v = Double(field.stringValue), v > 0 {
+            overlay.modifierFontSize = CGFloat(v)
+        }
     }
 
     private func makeLabel(_ text: String, frame: NSRect) -> NSTextField {
@@ -173,6 +265,18 @@ class RecordingControlPanel: NSPanel {
 
         // Restore presentation mode checkbox
         presentationModeCheck.state = RecordingPreferences.presentationMode ? .on : .off
+
+        // Restore key casting preferences
+        let keyCastOn = RecordingPreferences.keyCastingEnabled
+        keyCastCheck.state = keyCastOn ? .on : .off
+        keyCastLifetimeField.stringValue = "\(RecordingPreferences.keyCastingLifetime)"
+        keyCastKeyFontField.stringValue = "\(Int(RecordingPreferences.keyCastingKeyFontSize))"
+        keyCastModFontField.stringValue = "\(Int(RecordingPreferences.keyCastingModifierFontSize))"
+        keyCastLifetimeRow.isHidden = !keyCastOn
+        keyCastKeyFontRow.isHidden = !keyCastOn
+        keyCastModFontRow.isHidden = !keyCastOn
+        keyCastHintLabel.isHidden = !keyCastOn
+        if keyCastOn { showKeyCastPreview() }
 
         // Shareable content (async — requires screen recording permission)
         Task {
@@ -244,7 +348,46 @@ class RecordingControlPanel: NSPanel {
     }
 
     @objc private func cancel() {
+        hideKeyCastPreview()
         orderOut(nil)
+    }
+
+    @objc private func keyCastToggled() {
+        let on = keyCastCheck.state == .on
+        keyCastLifetimeRow.isHidden = !on
+        keyCastKeyFontRow.isHidden = !on
+        keyCastModFontRow.isHidden = !on
+        keyCastHintLabel.isHidden = !on
+        if on {
+            showKeyCastPreview()
+        } else {
+            hideKeyCastPreview()
+        }
+    }
+
+    private func showKeyCastPreview() {
+        hideKeyCastPreview()
+        let overlay = KeyCastOverlay()
+        if let lifetime = Double(keyCastLifetimeField.stringValue), lifetime > 0 {
+            overlay.keyLifetime = lifetime
+        } else {
+            overlay.keyLifetime = RecordingPreferences.keyCastingLifetime
+        }
+        if let size = Double(keyCastKeyFontField.stringValue), size > 0 {
+            overlay.keyFontSize = CGFloat(size)
+        }
+        if let size = Double(keyCastModFontField.stringValue), size > 0 {
+            overlay.modifierFontSize = CGFloat(size)
+        }
+        overlay.moveToSavedPosition()
+        overlay.orderFront(nil)
+        overlay.showDemoText()
+        keyCastPreview = overlay
+    }
+
+    private func hideKeyCastPreview() {
+        keyCastPreview?.orderOut(nil)
+        keyCastPreview = nil
     }
 
     @objc private func startRecording() {
@@ -301,7 +444,18 @@ class RecordingControlPanel: NSPanel {
         RecordingPreferences.presentationMode = presentationModeCheck.state == .on
         RecordingPreferences.audioDeviceUID = audioDevice?.uniqueID
         RecordingPreferences.saveDirectory = outputURL.deletingLastPathComponent()
+        RecordingPreferences.keyCastingEnabled = keyCastCheck.state == .on
+        if let lifetime = Double(keyCastLifetimeField.stringValue), lifetime > 0 {
+            RecordingPreferences.keyCastingLifetime = lifetime
+        }
+        if let size = Double(keyCastKeyFontField.stringValue), size > 0 {
+            RecordingPreferences.keyCastingKeyFontSize = CGFloat(size)
+        }
+        if let size = Double(keyCastModFontField.stringValue), size > 0 {
+            RecordingPreferences.keyCastingModifierFontSize = CGFloat(size)
+        }
 
+        hideKeyCastPreview()
         orderOut(nil)
         onRecord?(filter, width, height, audioDevice, outputURL, isPresentationMode, sourceRect)
     }
