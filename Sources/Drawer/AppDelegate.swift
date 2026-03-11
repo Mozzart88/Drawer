@@ -6,7 +6,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var overlayWindow: OverlayWindow!
     var drawingView: DrawingView!
     var hotkeyManager: HotkeyManager!
-    var colorWheelPanel: ColorWheelPanel!
+    var colorPanelController: ColorPanelController!
     var statusItem: NSStatusItem!
 
     var recordingManager: RecordingManager!
@@ -31,8 +31,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         drawingView.onTabletProximity = { [weak self] in self?.handleProximityEvent($0) }
         setupTabletProximityMonitor()
 
-        // Color wheel
-        colorWheelPanel = ColorWheelPanel(drawingView: drawingView)
+        // Color panel
+        colorPanelController = ColorPanelController(drawingView: drawingView)
 
         // Recording
         recordingManager = RecordingManager()
@@ -64,7 +64,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Toggle Drawing (F9)", action: #selector(toggleDrawing), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Clear (F10)", action: #selector(clearScreen), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Color Wheel (F8)", action: #selector(toggleColorWheel), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Color (F8)", action: #selector(toggleColorWheel), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         greenScreenMenuItem = NSMenuItem(title: "Green Screen (F5)", action: #selector(toggleGreenScreen), keyEquivalent: "")
         menu.addItem(greenScreenMenuItem)
@@ -109,6 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }) {
             tabletProximityMonitors.append(m)
         }
+
     }
 
     private func handleProximityEvent(_ event: NSEvent) {
@@ -133,11 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func toggleColorWheel() {
-        if colorWheelPanel.isVisible {
-            colorWheelPanel.orderOut(nil)
-        } else {
-            colorWheelPanel.makeKeyAndOrderFront(nil)
-        }
+        colorPanelController.toggle()
     }
 
     @objc func toggleGreenScreen() {
@@ -149,10 +146,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showGreenScreenColor() {
         let panel = NSColorPanel.shared
-        panel.color = GreenScreenPreferences.color
         panel.isContinuous = true
         panel.setTarget(self)
         panel.setAction(#selector(colorPanelDidChange(_:)))
+        panel.showsAlpha = false
+        panel.accessoryView = nil
+        panel.color = GreenScreenPreferences.color
+        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
 

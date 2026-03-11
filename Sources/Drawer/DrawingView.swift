@@ -3,9 +3,15 @@ import AppKit
 class DrawingView: NSView {
     var strokes: [StrokeData] = []
     var currentStroke: StrokeData?
-    var currentColor: NSColor = .red
-    var currentWidth: CGFloat = 4.0
-    var currentOpacity: CGFloat = 1.0
+    var currentColor: NSColor = .red {
+        didSet { StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth) }
+    }
+    var currentWidth: CGFloat = 4.0 {
+        didSet { StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth) }
+    }
+    var currentOpacity: CGFloat = 1.0 {
+        didSet { StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth) }
+    }
     var onWidthChanged: ((CGFloat) -> Void)?
     var onOpacityChanged: ((CGFloat) -> Void)?
     var onTabletProximity: ((NSEvent) -> Void)?
@@ -28,6 +34,10 @@ class DrawingView: NSView {
     private var sizeIndicatorTimer: Timer?
 
     override init(frame: NSRect) {
+        let s = StrokeSettings.load()
+        currentColor   = s.color
+        currentWidth   = s.width
+        currentOpacity = s.opacity
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = CGColor.clear
