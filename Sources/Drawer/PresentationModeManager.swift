@@ -6,17 +6,20 @@ class PresentationModeManager {
 
     private var sleepAssertionID: IOPMAssertionID = 0
     private var sleepAssertionActive = false
+    private var widgetsWereHidden: Int = 0
 
     func enable() {
         enableDND()
         preventSleep()
         hideDockAndMenuBar()
+        hideDesktopWidgets()
     }
 
     func disable() {
         disableDND()
         allowSleep()
         restoreDockAndMenuBar()
+        restoreDesktopWidgets()
     }
 
     // MARK: - Do Not Disturb
@@ -72,5 +75,22 @@ class PresentationModeManager {
         DispatchQueue.main.async {
             NSApp.presentationOptions = []
         }
+    }
+
+    // MARK: - Desktop Widgets
+
+    private func hideDesktopWidgets() {
+        guard #available(macOS 14, *) else { return }
+        let defaults = UserDefaults(suiteName: "com.apple.WindowManager")
+        widgetsWereHidden = defaults?.integer(forKey: "StandardHideWidgets") ?? 0
+        defaults?.set(1, forKey: "StandardHideWidgets")
+        defaults?.synchronize()
+    }
+
+    private func restoreDesktopWidgets() {
+        guard #available(macOS 14, *) else { return }
+        let defaults = UserDefaults(suiteName: "com.apple.WindowManager")
+        defaults?.set(widgetsWereHidden, forKey: "StandardHideWidgets")
+        defaults?.synchronize()
     }
 }
