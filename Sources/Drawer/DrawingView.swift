@@ -3,6 +3,9 @@ import AppKit
 class DrawingView: NSView {
     var strokes: [StrokeData] = []
     var currentStroke: StrokeData?
+    private var undoStack: [[StrokeData]] = []
+    private var redoStack: [[StrokeData]] = []
+    private let maxUndoSteps = 100
     var currentColor: NSColor = .red {
         didSet { StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth) }
     }
@@ -206,8 +209,29 @@ class DrawingView: NSView {
         setNeedsDisplay(bounds)
     }
 
+    private func saveUndoPoint() {
+        undoStack.append(strokes)
+        redoStack.removeAll()
+        if undoStack.count > maxUndoSteps { undoStack.removeFirst() }
+    }
+
+    func undo() {
+        guard !undoStack.isEmpty else { return }
+        redoStack.append(strokes)
+        strokes = undoStack.removeLast()
+        setNeedsDisplay(bounds)
+    }
+
+    func redo() {
+        guard !redoStack.isEmpty else { return }
+        undoStack.append(strokes)
+        strokes = redoStack.removeLast()
+        setNeedsDisplay(bounds)
+    }
+
     override func mouseUp(with event: NSEvent) {
         if let stroke = currentStroke {
+            saveUndoPoint()
             strokes.append(stroke)
             currentStroke = nil
         }
@@ -237,6 +261,7 @@ class DrawingView: NSView {
     }
 
     func clearStrokes() {
+        saveUndoPoint()
         strokes.removeAll()
         currentStroke = nil
         setNeedsDisplay(bounds)

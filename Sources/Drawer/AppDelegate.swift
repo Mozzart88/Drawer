@@ -18,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var drawingAutoEnabledByTablet = false
     private var keyCastOverlay: KeyCastOverlay?
     private var keyCastMonitors: [Any] = []
+    private var undoRedoMonitors: [Any] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -82,6 +83,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
 
+        setupUndoRedoMonitor()
+
         // Request permissions at startup so the user can grant them before first use.
         requestPermissions()
     }
@@ -133,6 +136,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     }
 
+    private func setupUndoRedoMonitor() {
+        let handler: (NSEvent) -> Void = { [weak self] event in
+            guard event.modifierFlags.contains(.command),
+                  event.keyCode == 6,            // kVK_ANSI_Z
+                  let self, self.drawingView.isDrawingMode else { return }
+            DispatchQueue.main.async {
+                if event.modifierFlags.contains(.shift) {
+                    self.drawingView.redo()
+                } else {
+                    self.drawingView.undo()
+                }
+            }
+        }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: handler) {
+            undoRedoMonitors.append(m)
+        }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
+            handler(event); return event
+        }) {
+            undoRedoMonitors.append(m)
+        }
+    }
+
     private func handleProximityEvent(_ event: NSEvent) {
         // Don't filter by pointingDeviceType — Sidecar may report .unknown on leave events
         if event.isEnteringProximity {
@@ -148,6 +174,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         tabletProximityMonitors.forEach { NSEvent.removeMonitor($0) }
+        undoRedoMonitors.forEach { NSEvent.removeMonitor($0) }
         stopKeyCasting()
     }
 
