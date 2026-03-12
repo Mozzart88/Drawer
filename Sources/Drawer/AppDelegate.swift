@@ -328,7 +328,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showRecordingPanel() {
         let panel = RecordingControlPanel()
         recordingControlPanel = panel
-        panel.onRecord = { [weak self] filter, width, height, audioDevice, outputURL, presentationMode, sourceRect, virtualChromakey in
+        panel.onRecord = { [weak self] filter, width, height, audioDevice, outputURL, presentationMode, sourceRect, virtualChromakey, alphaChannel in
             guard let self = self else { return }
             if presentationMode { self.presentationModeManager.enable() }
             Task {
@@ -343,7 +343,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             height: vcHeight,
                             audioDevice: audioDevice,
                             outputURL: outputURL,
-                            drawingView: self.drawingView
+                            drawingView: self.drawingView,
+                            useAlphaChannel: alphaChannel
                         )
                     } else {
                         try await self.recordingManager.startRecording(
@@ -374,7 +375,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let dir = RecordingPreferences.saveDirectory
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        let outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
+        let alphaChannel = RecordingPreferences.virtualChromakeyEnabled && RecordingPreferences.alphaChannelEnabled
+        let ext = alphaChannel ? "mov" : "mp4"
+        let outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).\(ext)")
 
         let audioDevice: AVCaptureDevice? = RecordingPreferences.audioDeviceUID.flatMap { uid in
             let deviceTypes: [AVCaptureDevice.DeviceType]
@@ -403,7 +406,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     height: vcHeight,
                     audioDevice: audioDevice,
                     outputURL: outputURL,
-                    drawingView: drawingView
+                    drawingView: drawingView,
+                    useAlphaChannel: alphaChannel
                 )
             } else {
                 let content = try await SCShareableContent.current

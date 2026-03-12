@@ -127,4 +127,9 @@ enum RecordingPreferences {
         get { defaults.bool(forKey: "drawer.recording.virtualChromakey") }
         set { defaults.set(newValue, forKey: "drawer.recording.virtualChromakey") }
     }
+
+    static var alphaChannelEnabled: Bool {
+        get { defaults.bool(forKey: "drawer.recording.alphaChannel") }
+        set { defaults.set(newValue, forKey: "drawer.recording.alphaChannel") }
+    }
 }

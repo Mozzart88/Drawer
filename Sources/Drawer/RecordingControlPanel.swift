@@ -4,8 +4,8 @@ import ScreenCaptureKit
 
 class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
 
-    // Called when user clicks Record — passes filter, pixel dimensions, audio device, output URL, presentation mode flag, sourceRect, virtualChromakey flag
-    var onRecord: ((SCContentFilter, Int, Int, AVCaptureDevice?, URL, Bool, CGRect?, Bool) -> Void)?
+    // Called when user clicks Record — passes filter, pixel dimensions, audio device, output URL, presentation mode flag, sourceRect, virtualChromakey flag, alphaChannel flag
+    var onRecord: ((SCContentFilter, Int, Int, AVCaptureDevice?, URL, Bool, CGRect?, Bool, Bool) -> Void)?
 
     private var modeSegment: NSSegmentedControl!
     private var windowPicker: NSPopUpButton!
@@ -13,6 +13,8 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     private var outputPathField: NSTextField!
     private var presentationModeCheck: NSButton!
     private var virtualChromakeyCheck: NSButton!
+    private var alphaChannelCheck: NSButton!
+    private var alphaChannelRow: NSView!
     private var keyCastCheck: NSButton!
     private var keyCastLifetimeField: NSTextField!
     private var keyCastLifetimeRow: NSView!
@@ -45,7 +47,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
 
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 628),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 662),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -64,14 +66,14 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     // MARK: - UI Setup
 
     private func setupUI() {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 628))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 662))
         contentView = content
 
         let lx: CGFloat = 10
         let lw: CGFloat = 90
         let cx: CGFloat = 108
         let cw: CGFloat = 282
-        var y: CGFloat = 586
+        var y: CGFloat = 620
         let rh: CGFloat = 26
         let rs: CGFloat = 38
 
@@ -129,7 +131,21 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         virtualChromakeyCheck = NSButton(frame: NSRect(x: cx, y: y + 2, width: cw, height: 22))
         virtualChromakeyCheck.setButtonType(.switch)
         virtualChromakeyCheck.title = "Virtual Chromakey (uses Green Screen color)"
+        virtualChromakeyCheck.target = self
+        virtualChromakeyCheck.action = #selector(virtualChromakeyToggled)
         content.addSubview(virtualChromakeyCheck)
+        y -= rs - 4
+
+        // Alpha channel (indented sub-option of virtual chromakey)
+        let alphaRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        alphaChannelRow = alphaRow
+        alphaChannelCheck = NSButton(frame: NSRect(x: 0, y: 0, width: cw - 16, height: 22))
+        alphaChannelCheck.setButtonType(.switch)
+        alphaChannelCheck.title = "Use Alpha Channel (HEVC, exports .mov)"
+        alphaChannelCheck.target = self
+        alphaChannelCheck.action = #selector(alphaChannelToggled)
+        alphaRow.addSubview(alphaChannelCheck)
+        content.addSubview(alphaRow)
         y -= rs - 4
 
         // Key casting toggle
@@ -343,6 +359,12 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         // Restore virtual chromakey checkbox
         virtualChromakeyCheck.state = RecordingPreferences.virtualChromakeyEnabled ? .on : .off
 
+        // Restore alpha channel checkbox and visibility
+        let alphaOn = RecordingPreferences.alphaChannelEnabled && RecordingPreferences.virtualChromakeyEnabled
+        alphaChannelCheck.state = alphaOn ? .on : .off
+        alphaChannelRow.isHidden = !RecordingPreferences.virtualChromakeyEnabled
+        updateOutputURLExtension()
+
         // Restore key casting preferences
         let keyCastOn = RecordingPreferences.keyCastingEnabled
         keyCastCheck.state = keyCastOn ? .on : .off
@@ -436,6 +458,24 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         orderOut(nil)
     }
 
+    @objc private func virtualChromakeyToggled() {
+        let on = virtualChromakeyCheck.state == .on
+        alphaChannelRow.isHidden = !on
+        if !on { alphaChannelCheck.state = .off }
+        updateOutputURLExtension()
+    }
+
+    @objc private func alphaChannelToggled() {
+        updateOutputURLExtension()
+    }
+
+    private func updateOutputURLExtension() {
+        let useAlpha = virtualChromakeyCheck.state == .on && alphaChannelCheck.state == .on
+        let ext = useAlpha ? "mov" : "mp4"
+        outputURL = outputURL.deletingPathExtension().appendingPathExtension(ext)
+        outputPathField.stringValue = outputURL.path
+    }
+
     @objc private func keyCastToggled() {
         let on = keyCastCheck.state == .on
         keyCastLifetimeRow.isHidden = !on
@@ -503,13 +543,16 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         // Window mode + click-to-pick
         if modeSegment.selectedSegment == 1 && windowPicker.indexOfSelectedItem == 0 {
             let isVirtualChromakey = virtualChromakeyCheck.state == .on
+            let isAlphaChannel = alphaChannelCheck.state == .on
             RecordingPreferences.virtualChromakeyEnabled = isVirtualChromakey
+            RecordingPreferences.alphaChannelEnabled = isAlphaChannel
             orderOut(nil)
             showWindowPicker(
                 windows: content.windows,
                 audioDevice: audioDevice,
                 presentationMode: isPresentationMode,
-                virtualChromakey: isVirtualChromakey
+                virtualChromakey: isVirtualChromakey,
+                alphaChannel: isAlphaChannel
             )
             return
         }
@@ -546,9 +589,11 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         }
 
         let isVirtualChromakey = virtualChromakeyCheck.state == .on
+        let isAlphaChannel = alphaChannelCheck.state == .on
         RecordingPreferences.recordingMode = modeSegment.selectedSegment
         RecordingPreferences.presentationMode = presentationModeCheck.state == .on
         RecordingPreferences.virtualChromakeyEnabled = isVirtualChromakey
+        RecordingPreferences.alphaChannelEnabled = isAlphaChannel
         RecordingPreferences.audioDeviceUID = audioDevice?.uniqueID
         RecordingPreferences.saveDirectory = outputURL.deletingLastPathComponent()
         RecordingPreferences.keyCastingEnabled = keyCastCheck.state == .on
@@ -567,7 +612,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
 
         hideKeyCastPreview()
         orderOut(nil)
-        onRecord?(filter, width, height, audioDevice, outputURL, isPresentationMode, sourceRect, isVirtualChromakey)
+        onRecord?(filter, width, height, audioDevice, outputURL, isPresentationMode, sourceRect, isVirtualChromakey, isAlphaChannel)
     }
 
     private func makeWindowFilter(for scWindow: SCWindow) -> (SCContentFilter, CGRect)? {
@@ -599,7 +644,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         return windowPicker.item(at: idx)?.representedObject as? SCWindow
     }
 
-    private func showWindowPicker(windows: [SCWindow], audioDevice: AVCaptureDevice?, presentationMode: Bool, virtualChromakey: Bool) {
+    private func showWindowPicker(windows: [SCWindow], audioDevice: AVCaptureDevice?, presentationMode: Bool, virtualChromakey: Bool, alphaChannel: Bool) {
         let overlay = WindowPickerOverlay(windows: windows)
         windowPickerOverlay = overlay
         overlay.completion = { [weak self] scWindow in
@@ -615,7 +660,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
                 let height = max(2, (Int(scWindow.frame.height * scale) / 2) * 2)
                 RecordingPreferences.windowBundleID = scWindow.owningApplication?.bundleIdentifier
                 RecordingPreferences.windowTitle = scWindow.title
-                self?.onRecord?(wFilter, width, height, audioDevice, self?.outputURL ?? URL(fileURLWithPath: ""), presentationMode, sRect, virtualChromakey)
+                self?.onRecord?(wFilter, width, height, audioDevice, self?.outputURL ?? URL(fileURLWithPath: ""), presentationMode, sRect, virtualChromakey, alphaChannel)
             }
         }
         overlay.makeKeyAndOrderFront(nil)
