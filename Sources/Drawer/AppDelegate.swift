@@ -16,6 +16,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var greenScreenMenuItem: NSMenuItem!
     private var tabletProximityMonitors: [Any] = []
     private var drawingAutoEnabledByTablet = false
+    private var keyCastOverlay: KeyCastOverlay?
+    private var keyCastMonitors: [Any] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -40,7 +42,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingManager.onStateChanged = { [weak self] state in
             self?.updateStatusBarIcon()
             self?.updateRecordingMenuItem()
-            if state == .idle {
+            if state == .recording {
+                self?.startKeyCasting()
+            } else {
+                self?.stopKeyCasting()
                 self?.presentationModeManager.disable()
             }
         }
@@ -127,6 +132,97 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         tabletProximityMonitors.forEach { NSEvent.removeMonitor($0) }
+        stopKeyCasting()
+    }
+
+    // MARK: - Key Casting
+
+    private func startKeyCasting() {
+        guard RecordingPreferences.keyCastingEnabled else { return }
+
+        // .keyDown global monitoring requires Accessibility permission.
+        // .flagsChanged works without it, which is why modifiers highlight but keys don't appear.
+        if !AXIsProcessTrusted() {
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            AXIsProcessTrustedWithOptions(opts)
+            let alert = NSAlert()
+            alert.messageText = "Accessibility Access Required"
+            alert.informativeText = "Key Casting needs Accessibility access to capture keyboard input. Please grant access in System Settings › Privacy & Security › Accessibility, then start recording again."
+            alert.runModal()
+            return
+        }
+
+        let overlay = KeyCastOverlay()
+        overlay.keyLifetime = RecordingPreferences.keyCastingLifetime
+        overlay.keyFontSize = RecordingPreferences.keyCastingKeyFontSize
+        overlay.modifierFontSize = RecordingPreferences.keyCastingModifierFontSize
+        overlay.moveToSavedPosition()
+        overlay.orderFront(nil)
+        keyCastOverlay = overlay
+
+        let handler: (NSEvent) -> Void = { [weak overlay] event in
+            DispatchQueue.main.async {
+                switch event.type {
+                case .flagsChanged: overlay?.updateModifiers(event.modifierFlags)
+                case .keyDown:
+                    let (text, inline) = AppDelegate.keyDisplay(for: event)
+                    overlay?.showKey(text, inline: inline)
+                default: break
+                }
+            }
+        }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged], handler: handler) {
+            keyCastMonitors.append(m)
+        }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged], handler: { event in
+            handler(event); return event
+        }) {
+            keyCastMonitors.append(m)
+        }
+    }
+
+    private func stopKeyCasting() {
+        keyCastMonitors.forEach { NSEvent.removeMonitor($0) }
+        keyCastMonitors.removeAll()
+        keyCastOverlay?.orderOut(nil)
+        keyCastOverlay = nil
+    }
+
+    /// Returns (display string, isInline).
+    /// Inline = printable character that should be concatenated directly with neighbours.
+    /// Non-inline = special key that gets space-separated from adjacent keys.
+    private static func keyDisplay(for event: NSEvent) -> (String, Bool) {
+        switch event.keyCode {
+        case 49:  return ("⎵", false)
+        case 36:  return ("↩", false)
+        case 51:  return ("⌫", false)
+        case 117: return ("⌦", false)
+        case 53:  return ("<Esc>", false)
+        case 48:  return ("⇥", false)
+        case 126: return ("↑", false)
+        case 125: return ("↓", false)
+        case 123: return ("←", false)
+        case 124: return ("→", false)
+        case 115: return ("↖", false)
+        case 119: return ("↘", false)
+        case 116: return ("⇞", false)
+        case 121: return ("⇟", false)
+        case 122: return ("<F1>", false)
+        case 120: return ("<F2>", false)
+        case 99:  return ("<F3>", false)
+        case 118: return ("<F4>", false)
+        case 96:  return ("<F5>", false)
+        case 97:  return ("<F6>", false)
+        case 98:  return ("<F7>", false)
+        case 100: return ("<F8>", false)
+        case 101: return ("<F9>", false)
+        case 109: return ("<F10>", false)
+        case 103: return ("<F11>", false)
+        case 111: return ("<F12>", false)
+        default:
+            let char = event.charactersIgnoringModifiers ?? "?"
+            return (char, true)
+        }
     }
 
     @objc func clearScreen() {

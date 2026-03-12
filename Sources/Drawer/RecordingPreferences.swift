@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 enum RecordingPreferences {
     private static let defaults = UserDefaults.standard
@@ -42,5 +42,84 @@ enum RecordingPreferences {
     static var windowTitle: String? {
         get { defaults.string(forKey: "windowTitle") }
         set { defaults.set(newValue, forKey: "windowTitle") }
+    }
+
+    static var keyCastingEnabled: Bool {
+        get { defaults.bool(forKey: "drawer.recording.keyCasting") }
+        set { defaults.set(newValue, forKey: "drawer.recording.keyCasting") }
+    }
+
+    /// Stored as "x,y" string; nil = default (bottom-right corner)
+    static var keyCastingPosition: CGPoint? {
+        get {
+            guard let s = defaults.string(forKey: "drawer.recording.keyCastingPosition") else { return nil }
+            let parts = s.split(separator: ",").compactMap { Double($0) }
+            guard parts.count == 2 else { return nil }
+            return CGPoint(x: parts[0], y: parts[1])
+        }
+        set {
+            if let p = newValue {
+                defaults.set("\(p.x),\(p.y)", forKey: "drawer.recording.keyCastingPosition")
+            } else {
+                defaults.removeObject(forKey: "drawer.recording.keyCastingPosition")
+            }
+        }
+    }
+
+    /// Duration in seconds that a regular key press stays visible. Default 1.5.
+    static var keyCastingLifetime: TimeInterval {
+        get {
+            let v = defaults.double(forKey: "drawer.recording.keyCastingLifetime")
+            return v > 0 ? v : 1.5
+        }
+        set { defaults.set(newValue, forKey: "drawer.recording.keyCastingLifetime") }
+    }
+
+    /// Font size for the pressed-key label. Default 20.
+    static var keyCastingKeyFontSize: CGFloat {
+        get {
+            let v = defaults.double(forKey: "drawer.recording.keyCastingKeyFontSize")
+            return v > 0 ? CGFloat(v) : 20
+        }
+        set { defaults.set(Double(newValue), forKey: "drawer.recording.keyCastingKeyFontSize") }
+    }
+
+    /// Font size for the modifier-key row. Default 10.
+    static var keyCastingModifierFontSize: CGFloat {
+        get {
+            let v = defaults.double(forKey: "drawer.recording.keyCastingModifierFontSize")
+            return v > 0 ? CGFloat(v) : 10
+        }
+        set { defaults.set(Double(newValue), forKey: "drawer.recording.keyCastingModifierFontSize") }
+    }
+
+    /// RGB components (sRGB, 0–1). Stored as "r,g,b". Default black.
+    static var keyCastingBgColor: NSColor {
+        get {
+            guard let s = defaults.string(forKey: "drawer.recording.keyCastingBgColor") else { return .black }
+            let p = s.split(separator: ",").compactMap { Double($0) }
+            guard p.count == 3 else { return .black }
+            return NSColor(srgbRed: p[0], green: p[1], blue: p[2], alpha: 1)
+        }
+        set {
+            let c = newValue.usingColorSpace(.sRGB) ?? newValue
+            defaults.set("\(c.redComponent),\(c.greenComponent),\(c.blueComponent)",
+                         forKey: "drawer.recording.keyCastingBgColor")
+        }
+    }
+
+    /// Background opacity 0–1. Default 0.75.
+    static var keyCastingBgOpacity: CGFloat {
+        get {
+            let v = defaults.double(forKey: "drawer.recording.keyCastingBgOpacity")
+            return v > 0 ? CGFloat(v) : 0.75
+        }
+        set { defaults.set(Double(newValue), forKey: "drawer.recording.keyCastingBgOpacity") }
+    }
+
+    /// Text displayed in the overlay while prefs are open. Default "Hello ⎵ World".
+    static var keyCastingDemoText: String {
+        get { defaults.string(forKey: "drawer.recording.keyCastingDemoText") ?? "Hello ⎵ World" }
+        set { defaults.set(newValue, forKey: "drawer.recording.keyCastingDemoText") }
     }
 }
