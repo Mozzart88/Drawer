@@ -20,6 +20,8 @@ class OverlayWindow: NSWindow {
         alphaValue = 1.0
     }
 
+    override var canBecomeKey: Bool { true }
+
     private(set) var isGreenScreenOn = false
 
     func toggleGreenScreen() {

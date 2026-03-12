@@ -12,6 +12,7 @@ final class ColorPanelController: NSObject {
         configure()
         drawingView.onWidthChanged   = { [weak self] w in self?.syncWidth(w) }
         drawingView.onOpacityChanged = { [weak self] a in self?.syncOpacity(a) }
+        drawingView.onColorChanged   = { [weak self] _ in self?.syncPanelColor() }
     }
 
     private func configure() {

@@ -7,7 +7,10 @@ class DrawingView: NSView {
     private var redoStack: [[StrokeData]] = []
     private let maxUndoSteps = 100
     var currentColor: NSColor = .red {
-        didSet { StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth) }
+        didSet {
+            StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth)
+            colorObservers.forEach { $0(currentColor) }
+        }
     }
     var currentWidth: CGFloat = 4.0 {
         didSet { StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth) }
@@ -15,8 +18,13 @@ class DrawingView: NSView {
     var currentOpacity: CGFloat = 1.0 {
         didSet { StrokeSettings.save(color: currentColor, opacity: currentOpacity, width: currentWidth) }
     }
-    var onWidthChanged: ((CGFloat) -> Void)?
-    var onOpacityChanged: ((CGFloat) -> Void)?
+    private var widthObservers:   [(CGFloat) -> Void] = []
+    private var opacityObservers: [(CGFloat) -> Void] = []
+    private var colorObservers:   [(NSColor) -> Void] = []
+
+    var onWidthChanged:   ((CGFloat) -> Void)? { get { nil } set { if let f = newValue { widthObservers.append(f) } } }
+    var onOpacityChanged: ((CGFloat) -> Void)? { get { nil } set { if let f = newValue { opacityObservers.append(f) } } }
+    var onColorChanged:   ((NSColor) -> Void)? { get { nil } set { if let f = newValue { colorObservers.append(f) } } }
     var onTabletProximity: ((NSEvent) -> Void)?
     var isDrawingMode: Bool = false {
         didSet {
@@ -49,6 +57,15 @@ class DrawingView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
+
+    private var touchBarController: TouchBarController?
+
+    override func makeTouchBar() -> NSTouchBar? {
+        let c = TouchBarController(drawingView: self)
+        touchBarController = c
+        return c.makeTouchBar()
+    }
 
     override func updateTrackingAreas() {
         trackingAreas.forEach { removeTrackingArea($0) }
@@ -242,10 +259,10 @@ class DrawingView: NSView {
         let delta = event.deltaY
         if event.modifierFlags.contains(.control) {
             currentOpacity = max(0.05, min(1.0, currentOpacity - delta * 0.02))
-            onOpacityChanged?(currentOpacity)
+            opacityObservers.forEach { $0(currentOpacity) }
         } else {
             currentWidth = max(1.0, min(40.0, currentWidth - delta))
-            onWidthChanged?(currentWidth)
+            widthObservers.forEach { $0(currentWidth) }
         }
         showSizeIndicator()
     }
