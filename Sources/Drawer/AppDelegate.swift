@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyCastOverlay: KeyCastOverlay?
     private var keyCastMonitors: [Any] = []
     private var undoRedoMonitors: [Any] = []
+    private var strokeHUD: StrokeHUDPanel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -29,6 +30,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         drawingView.autoresizingMask = [.width, .height]
         overlayWindow.contentView!.addSubview(drawingView)
         overlayWindow.makeKeyAndOrderFront(nil)
+        overlayWindow.makeFirstResponder(drawingView)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
 
         // Tablet proximity
         drawingView.onTabletProximity = { [weak self] in self?.handleProximityEvent($0) }
@@ -89,6 +98,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         requestPermissions()
     }
 
+    @objc private func screenParametersChanged() {
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        overlayWindow.setFrame(screen.frame, display: true)
+        strokeHUD?.reposition(to: screen)
+    }
+
     private func requestPermissions() {
         // Screen recording — CGRequestScreenCaptureAccess triggers the system permission
         // dialog on first run. Actual content is fetched later when the recording panel opens.
@@ -111,12 +126,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         drawingView.isDrawingMode = true
         overlayWindow.ignoresMouseEvents = false
         updateStatusBarIcon()
+        overlayWindow.makeFirstResponder(drawingView)
+        if strokeHUD == nil {
+            strokeHUD = StrokeHUDPanel(drawingView: drawingView)
+        }
+        strokeHUD?.orderFront(nil)
     }
 
     private func disableDrawing() {
         drawingView.isDrawingMode = false
         overlayWindow.ignoresMouseEvents = true
         updateStatusBarIcon()
+        strokeHUD?.orderOut(nil)
     }
 
     private func setupTabletProximityMonitor() {
