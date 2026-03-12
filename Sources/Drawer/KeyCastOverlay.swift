@@ -18,6 +18,10 @@ class KeyCastOverlay: NSPanel {
         }
     }
 
+    var overlayBackgroundColor: NSColor = .black { didSet { applyBackground() } }
+    var overlayBackgroundOpacity: CGFloat = 0.75  { didSet { applyBackground() } }
+    var demoText: String = "Hello ⎵ World"
+
     private let keyLabel: NSTextField
     private var lastKeyWasSpecial = false
     private var currentModifierFlags: NSEvent.ModifierFlags = []
@@ -25,6 +29,11 @@ class KeyCastOverlay: NSPanel {
     private var clearTimer: Timer?
     private var divider: NSBox?
     private var isApplyingSize = false
+
+    private func applyBackground() {
+        contentView?.layer?.backgroundColor =
+            overlayBackgroundColor.withAlphaComponent(overlayBackgroundOpacity).cgColor
+    }
 
     private static let overlayWidth: CGFloat = 220
     private static let modifierDefs: [(UInt, String)] = [
@@ -129,9 +138,9 @@ class KeyCastOverlay: NSPanel {
             height: 80
         ))
         container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.75).cgColor
         container.layer?.cornerRadius = 10
         contentView = container
+        applyBackground()
 
         keyLabel.font = NSFont.systemFont(ofSize: keyFontSize, weight: .medium)
         keyLabel.textColor = .white
@@ -180,7 +189,7 @@ class KeyCastOverlay: NSPanel {
     func showDemoText() {
         clearTimer?.invalidate()
         clearTimer = nil
-        keyLabel.stringValue = "Hello ⎵ World"
+        keyLabel.stringValue = demoText
         lastKeyWasSpecial = false
     }
 

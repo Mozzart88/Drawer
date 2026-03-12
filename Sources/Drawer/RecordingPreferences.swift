@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 enum RecordingPreferences {
     private static let defaults = UserDefaults.standard
@@ -91,5 +91,35 @@ enum RecordingPreferences {
             return v > 0 ? CGFloat(v) : 10
         }
         set { defaults.set(Double(newValue), forKey: "drawer.recording.keyCastingModifierFontSize") }
+    }
+
+    /// RGB components (sRGB, 0–1). Stored as "r,g,b". Default black.
+    static var keyCastingBgColor: NSColor {
+        get {
+            guard let s = defaults.string(forKey: "drawer.recording.keyCastingBgColor") else { return .black }
+            let p = s.split(separator: ",").compactMap { Double($0) }
+            guard p.count == 3 else { return .black }
+            return NSColor(srgbRed: p[0], green: p[1], blue: p[2], alpha: 1)
+        }
+        set {
+            let c = newValue.usingColorSpace(.sRGB) ?? newValue
+            defaults.set("\(c.redComponent),\(c.greenComponent),\(c.blueComponent)",
+                         forKey: "drawer.recording.keyCastingBgColor")
+        }
+    }
+
+    /// Background opacity 0–1. Default 0.75.
+    static var keyCastingBgOpacity: CGFloat {
+        get {
+            let v = defaults.double(forKey: "drawer.recording.keyCastingBgOpacity")
+            return v > 0 ? CGFloat(v) : 0.75
+        }
+        set { defaults.set(Double(newValue), forKey: "drawer.recording.keyCastingBgOpacity") }
+    }
+
+    /// Text displayed in the overlay while prefs are open. Default "Hello ⎵ World".
+    static var keyCastingDemoText: String {
+        get { defaults.string(forKey: "drawer.recording.keyCastingDemoText") ?? "Hello ⎵ World" }
+        set { defaults.set(newValue, forKey: "drawer.recording.keyCastingDemoText") }
     }
 }

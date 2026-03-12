@@ -19,6 +19,13 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     private var keyCastKeyFontRow: NSView!
     private var keyCastModFontField: NSTextField!
     private var keyCastModFontRow: NSView!
+    private var keyCastBgColorWell: NSColorWell!
+    private var keyCastBgColorRow: NSView!
+    private var keyCastBgOpacityField: NSTextField!
+    private var keyCastBgOpacitySlider: NSSlider!
+    private var keyCastBgOpacityRow: NSView!
+    private var keyCastDemoTextField: NSTextField!
+    private var keyCastDemoTextRow: NSView!
     private var keyCastHintLabel: NSTextField!
     private var recordButton: NSButton!
     private var statusLabel: NSTextField!
@@ -37,7 +44,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
 
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 488),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 590),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -56,14 +63,14 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     // MARK: - UI Setup
 
     private func setupUI() {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 488))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 590))
         contentView = content
 
         let lx: CGFloat = 10
         let lw: CGFloat = 90
         let cx: CGFloat = 108
         let cw: CGFloat = 282
-        var y: CGFloat = 446
+        var y: CGFloat = 548
         let rh: CGFloat = 26
         let rs: CGFloat = 38
 
@@ -182,6 +189,59 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         content.addSubview(modFontRow)
         y -= rs - 4
 
+        // BG color: [color well]  (indented row)
+        let bgColorRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        keyCastBgColorRow = bgColorRow
+        let bgColorLbl = NSTextField(labelWithString: "BG color:")
+        bgColorLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        bgColorLbl.font = NSFont.systemFont(ofSize: 13)
+        bgColorRow.addSubview(bgColorLbl)
+        keyCastBgColorWell = ActivatingColorWell(frame: NSRect(x: 106, y: 0, width: 44, height: 22))
+        keyCastBgColorWell.color = .black
+        keyCastBgColorWell.target = self
+        keyCastBgColorWell.action = #selector(bgColorChanged)
+        bgColorRow.addSubview(keyCastBgColorWell)
+        content.addSubview(bgColorRow)
+        y -= rs - 4
+
+        // BG opacity: [field] [slider]  (indented row)
+        let bgOpacityRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        keyCastBgOpacityRow = bgOpacityRow
+        let bgOpacityLbl = NSTextField(labelWithString: "BG opacity:")
+        bgOpacityLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        bgOpacityLbl.font = NSFont.systemFont(ofSize: 13)
+        bgOpacityRow.addSubview(bgOpacityLbl)
+        keyCastBgOpacityField = NSTextField(frame: NSRect(x: 106, y: 0, width: 40, height: 22))
+        keyCastBgOpacityField.stringValue = "0.75"
+        keyCastBgOpacityField.isEditable = true
+        keyCastBgOpacityField.delegate = self
+        bgOpacityRow.addSubview(keyCastBgOpacityField)
+        keyCastBgOpacitySlider = NSSlider(frame: NSRect(x: 152, y: 0, width: 90, height: 22))
+        keyCastBgOpacitySlider.minValue = 0
+        keyCastBgOpacitySlider.maxValue = 1
+        keyCastBgOpacitySlider.doubleValue = 0.75
+        keyCastBgOpacitySlider.isContinuous = true
+        keyCastBgOpacitySlider.target = self
+        keyCastBgOpacitySlider.action = #selector(bgOpacitySliderChanged)
+        bgOpacityRow.addSubview(keyCastBgOpacitySlider)
+        content.addSubview(bgOpacityRow)
+        y -= rs - 4
+
+        // Demo text: [field]  (indented row)
+        let demoTextRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        keyCastDemoTextRow = demoTextRow
+        let demoTextLbl = NSTextField(labelWithString: "Demo text:")
+        demoTextLbl.frame = NSRect(x: 0, y: 1, width: 90, height: 20)
+        demoTextLbl.font = NSFont.systemFont(ofSize: 13)
+        demoTextRow.addSubview(demoTextLbl)
+        keyCastDemoTextField = NSTextField(frame: NSRect(x: 106, y: 0, width: cw - 16 - 106, height: 22))
+        keyCastDemoTextField.stringValue = "Hello ⎵ World"
+        keyCastDemoTextField.isEditable = true
+        keyCastDemoTextField.delegate = self
+        demoTextRow.addSubview(keyCastDemoTextField)
+        content.addSubview(demoTextRow)
+        y -= rs - 4
+
         // Hint label
         keyCastHintLabel = NSTextField(labelWithString: "Drag the overlay to position it")
         keyCastHintLabel.frame = NSRect(x: cx + 16, y: y + 2, width: cw - 16, height: 20)
@@ -225,6 +285,12 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
             overlay.keyFontSize = CGFloat(v)
         } else if field === keyCastModFontField, let v = Double(field.stringValue), v > 0 {
             overlay.modifierFontSize = CGFloat(v)
+        } else if field === keyCastBgOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
+            keyCastBgOpacitySlider.doubleValue = v
+            overlay.overlayBackgroundOpacity = CGFloat(v)
+        } else if field === keyCastDemoTextField {
+            overlay.demoText = field.stringValue.isEmpty ? "Hello ⎵ World" : field.stringValue
+            overlay.showDemoText()
         }
     }
 
@@ -272,9 +338,16 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         keyCastLifetimeField.stringValue = "\(RecordingPreferences.keyCastingLifetime)"
         keyCastKeyFontField.stringValue = "\(Int(RecordingPreferences.keyCastingKeyFontSize))"
         keyCastModFontField.stringValue = "\(Int(RecordingPreferences.keyCastingModifierFontSize))"
+        keyCastBgColorWell.color = RecordingPreferences.keyCastingBgColor
+        keyCastBgOpacityField.stringValue = "\(RecordingPreferences.keyCastingBgOpacity)"
+        keyCastBgOpacitySlider.doubleValue = Double(RecordingPreferences.keyCastingBgOpacity)
+        keyCastDemoTextField.stringValue = RecordingPreferences.keyCastingDemoText
         keyCastLifetimeRow.isHidden = !keyCastOn
         keyCastKeyFontRow.isHidden = !keyCastOn
         keyCastModFontRow.isHidden = !keyCastOn
+        keyCastBgColorRow.isHidden = !keyCastOn
+        keyCastBgOpacityRow.isHidden = !keyCastOn
+        keyCastDemoTextRow.isHidden = !keyCastOn
         keyCastHintLabel.isHidden = !keyCastOn
         if keyCastOn { showKeyCastPreview() }
 
@@ -357,12 +430,25 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         keyCastLifetimeRow.isHidden = !on
         keyCastKeyFontRow.isHidden = !on
         keyCastModFontRow.isHidden = !on
+        keyCastBgColorRow.isHidden = !on
+        keyCastBgOpacityRow.isHidden = !on
+        keyCastDemoTextRow.isHidden = !on
         keyCastHintLabel.isHidden = !on
         if on {
             showKeyCastPreview()
         } else {
             hideKeyCastPreview()
         }
+    }
+
+    @objc private func bgColorChanged() {
+        keyCastPreview?.overlayBackgroundColor = keyCastBgColorWell.color
+    }
+
+    @objc private func bgOpacitySliderChanged() {
+        let v = keyCastBgOpacitySlider.doubleValue
+        keyCastBgOpacityField.stringValue = String(format: "%.2f", v)
+        keyCastPreview?.overlayBackgroundOpacity = CGFloat(v)
     }
 
     private func showKeyCastPreview() {
@@ -379,6 +465,11 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         if let size = Double(keyCastModFontField.stringValue), size > 0 {
             overlay.modifierFontSize = CGFloat(size)
         }
+        overlay.overlayBackgroundColor = keyCastBgColorWell.color
+        overlay.overlayBackgroundOpacity = CGFloat(Double(keyCastBgOpacityField.stringValue) ?? 0.75)
+        overlay.demoText = keyCastDemoTextField.stringValue.isEmpty
+            ? "Hello ⎵ World"
+            : keyCastDemoTextField.stringValue
         overlay.moveToSavedPosition()
         overlay.orderFront(nil)
         overlay.showDemoText()
@@ -454,6 +545,9 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         if let size = Double(keyCastModFontField.stringValue), size > 0 {
             RecordingPreferences.keyCastingModifierFontSize = CGFloat(size)
         }
+        RecordingPreferences.keyCastingBgColor = keyCastBgColorWell.color
+        RecordingPreferences.keyCastingBgOpacity = CGFloat(Double(keyCastBgOpacityField.stringValue) ?? 0.75)
+        RecordingPreferences.keyCastingDemoText = keyCastDemoTextField.stringValue
 
         hideKeyCastPreview()
         orderOut(nil)
@@ -510,5 +604,14 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         }
         overlay.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+// NSColorWell inside a .nonactivatingPanel won't open the color picker because
+// the app stays inactive. Activating the app first fixes that.
+private class ActivatingColorWell: NSColorWell {
+    override func mouseDown(with event: NSEvent) {
+        NSApp.activate(ignoringOtherApps: true)
+        super.mouseDown(with: event)
     }
 }
