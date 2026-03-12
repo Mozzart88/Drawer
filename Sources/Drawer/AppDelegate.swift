@@ -165,6 +165,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.keyLifetime = RecordingPreferences.keyCastingLifetime
         overlay.keyFontSize = RecordingPreferences.keyCastingKeyFontSize
         overlay.modifierFontSize = RecordingPreferences.keyCastingModifierFontSize
+        overlay.overlayBackgroundColor = RecordingPreferences.keyCastingBgColor
+        overlay.overlayBackgroundOpacity = RecordingPreferences.keyCastingBgOpacity
         overlay.moveToSavedPosition()
         overlay.orderFront(nil)
         keyCastOverlay = overlay
