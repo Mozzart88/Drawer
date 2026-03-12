@@ -31,6 +31,7 @@ class RecordingManager: NSObject {
 
     // MARK: - Virtual chromakey state
     private(set) var isVirtualChromakey: Bool = false
+    private var isAlphaChannel: Bool = false
     private var chromakeyTimer: DispatchSourceTimer?
     private weak var chromakeyDrawingView: DrawingView?
     private var chromakeyPixelBufferPool: CVPixelBufferPool?
@@ -158,7 +159,8 @@ class RecordingManager: NSObject {
         height: Int,
         audioDevice: AVCaptureDevice?,
         outputURL: URL,
-        drawingView: DrawingView
+        drawingView: DrawingView,
+        useAlphaChannel: Bool = false
     ) async throws {
         guard state == .idle else { return }
 
@@ -166,37 +168,54 @@ class RecordingManager: NSObject {
         sessionStarted = false
         pendingAudioBuffers = []
         isVirtualChromakey = true
+        isAlphaChannel = useAlphaChannel
         chromakeyDrawingView = drawingView
         chromakeyFrameCount = 0
 
         let encodeWidth = (width / 2) * 2
         let encodeHeight = (height / 2) * 2
 
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        let fileType: AVFileType = useAlphaChannel ? .mov : .mp4
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
         let creationItem = AVMutableMetadataItem()
         creationItem.identifier = .quickTimeMetadataCreationDate
         creationItem.value = ISO8601DateFormatter().string(from: recordingStartDate) as NSString
         writer.metadata = [creationItem]
         self.assetWriter = writer
 
-        let videoInput = AVAssetWriterInput(
-            mediaType: .video,
-            outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: encodeWidth,
-                AVVideoHeightKey: encodeHeight,
-                AVVideoColorPropertiesKey: [
-                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
-                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
-                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
-                ],
-                AVVideoCompressionPropertiesKey: [
-                    AVVideoAverageBitRateKey: 8_000_000,
-                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                    AVVideoMaxKeyFrameIntervalKey: 60
-                ] as [String: Any]
-            ]
-        )
+        let videoInput: AVAssetWriterInput
+        if useAlphaChannel {
+            videoInput = AVAssetWriterInput(
+                mediaType: .video,
+                outputSettings: [
+                    AVVideoCodecKey: AVVideoCodecType.hevcWithAlpha,
+                    AVVideoWidthKey: encodeWidth,
+                    AVVideoHeightKey: encodeHeight,
+                    AVVideoCompressionPropertiesKey: [
+                        AVVideoAverageBitRateKey: 12_000_000
+                    ] as [String: Any]
+                ]
+            )
+        } else {
+            videoInput = AVAssetWriterInput(
+                mediaType: .video,
+                outputSettings: [
+                    AVVideoCodecKey: AVVideoCodecType.h264,
+                    AVVideoWidthKey: encodeWidth,
+                    AVVideoHeightKey: encodeHeight,
+                    AVVideoColorPropertiesKey: [
+                        AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                        AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                        AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+                    ],
+                    AVVideoCompressionPropertiesKey: [
+                        AVVideoAverageBitRateKey: 8_000_000,
+                        AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                        AVVideoMaxKeyFrameIntervalKey: 60
+                    ] as [String: Any]
+                ]
+            )
+        }
         videoInput.expectsMediaDataInRealTime = true
         self.videoInput = videoInput
 
@@ -271,6 +290,7 @@ class RecordingManager: NSObject {
         chromakeyTimer?.cancel()
         chromakeyTimer = nil
         isVirtualChromakey = false
+        isAlphaChannel = false
         chromakeyDrawingView = nil
         chromakeyPixelBufferPool = nil
         chromakeyFrameCount = 0
@@ -330,9 +350,13 @@ class RecordingManager: NSObject {
             return
         }
 
-        // Fill with chromakey background color
-        ctx.setFillColor(GreenScreenPreferences.color.cgColor)
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        // Fill background: transparent for alpha channel mode, solid chromakey color otherwise
+        if isAlphaChannel {
+            ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+        } else {
+            ctx.setFillColor(GreenScreenPreferences.color.cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        }
 
         // Both CGBitmapContext and unflipped NSView use Quartz coords (origin bottom-left, y upward).
         // Only a scale is needed — no flip.
