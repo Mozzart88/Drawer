@@ -122,4 +122,9 @@ enum RecordingPreferences {
         get { defaults.string(forKey: "drawer.recording.keyCastingDemoText") ?? "Hello ⎵ World" }
         set { defaults.set(newValue, forKey: "drawer.recording.keyCastingDemoText") }
     }
+
+    static var virtualChromakeyEnabled: Bool {
+        get { defaults.bool(forKey: "drawer.recording.virtualChromakey") }
+        set { defaults.set(newValue, forKey: "drawer.recording.virtualChromakey") }
+    }
 }

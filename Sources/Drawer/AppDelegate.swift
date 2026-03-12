@@ -280,19 +280,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showRecordingPanel() {
         let panel = RecordingControlPanel()
         recordingControlPanel = panel
-        panel.onRecord = { [weak self] filter, width, height, audioDevice, outputURL, presentationMode, sourceRect in
+        panel.onRecord = { [weak self] filter, width, height, audioDevice, outputURL, presentationMode, sourceRect, virtualChromakey in
             guard let self = self else { return }
             if presentationMode { self.presentationModeManager.enable() }
             Task {
                 do {
-                    try await self.recordingManager.startRecording(
-                        filter: filter,
-                        width: width,
-                        height: height,
-                        audioDevice: audioDevice,
-                        outputURL: outputURL,
-                        sourceRect: sourceRect
-                    )
+                    if virtualChromakey {
+                        let screen = NSScreen.main ?? NSScreen.screens[0]
+                        let scale = screen.backingScaleFactor
+                        let vcWidth = (Int(screen.frame.width * scale) / 2) * 2
+                        let vcHeight = (Int(screen.frame.height * scale) / 2) * 2
+                        try await self.recordingManager.startVirtualChromakeyRecording(
+                            width: vcWidth,
+                            height: vcHeight,
+                            audioDevice: audioDevice,
+                            outputURL: outputURL,
+                            drawingView: self.drawingView
+                        )
+                    } else {
+                        try await self.recordingManager.startRecording(
+                            filter: filter,
+                            width: width,
+                            height: height,
+                            audioDevice: audioDevice,
+                            outputURL: outputURL,
+                            sourceRect: sourceRect
+                        )
+                    }
                 } catch {
                     await MainActor.run {
                         self.presentationModeManager.disable()
@@ -324,42 +338,61 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let presentationMode = RecordingPreferences.presentationMode
+        let virtualChromakey = RecordingPreferences.virtualChromakeyEnabled
 
         do {
-            let content = try await SCShareableContent.current
-            let filter: SCContentFilter
-            let width: Int
-            let height: Int
-            let sourceRect: CGRect?
-
-            if RecordingPreferences.recordingMode == 0 {
-                guard let display = content.displays.first else { return }
-                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-                let screen = NSScreen.main ?? NSScreen.screens[0]
-                let scale = screen.backingScaleFactor
-                width = (Int(screen.frame.width * scale) / 2) * 2
-                height = (Int(screen.frame.height * scale) / 2) * 2
-                sourceRect = nil
-            } else {
-                guard let scWindow = findSavedWindow(in: content.windows) else {
-                    await MainActor.run { showRecordingPanel() }
-                    return
-                }
-                guard let (wFilter, sRect) = makeWindowFilter(for: scWindow, content: content) else { return }
-                filter = wFilter
-                sourceRect = sRect
-                let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-                width = max(2, (Int(scWindow.frame.width * scale) / 2) * 2)
-                height = max(2, (Int(scWindow.frame.height * scale) / 2) * 2)
-            }
-
             await MainActor.run { if presentationMode { presentationModeManager.enable() } }
-            try await recordingManager.startRecording(
-                filter: filter, width: width, height: height,
-                audioDevice: audioDevice, outputURL: outputURL, sourceRect: sourceRect
-            )
+
+            if virtualChromakey {
+                let (vcWidth, vcHeight): (Int, Int) = await MainActor.run {
+                    let screen = NSScreen.main ?? NSScreen.screens[0]
+                    let scale = screen.backingScaleFactor
+                    return ((Int(screen.frame.width * scale) / 2) * 2,
+                            (Int(screen.frame.height * scale) / 2) * 2)
+                }
+                try await recordingManager.startVirtualChromakeyRecording(
+                    width: vcWidth,
+                    height: vcHeight,
+                    audioDevice: audioDevice,
+                    outputURL: outputURL,
+                    drawingView: drawingView
+                )
+            } else {
+                let content = try await SCShareableContent.current
+                let filter: SCContentFilter
+                let width: Int
+                let height: Int
+                let sourceRect: CGRect?
+
+                if RecordingPreferences.recordingMode == 0 {
+                    guard let display = content.displays.first else { return }
+                    filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                    let screen = NSScreen.main ?? NSScreen.screens[0]
+                    let scale = screen.backingScaleFactor
+                    width = (Int(screen.frame.width * scale) / 2) * 2
+                    height = (Int(screen.frame.height * scale) / 2) * 2
+                    sourceRect = nil
+                } else {
+                    guard let scWindow = findSavedWindow(in: content.windows) else {
+                        await MainActor.run { showRecordingPanel() }
+                        return
+                    }
+                    guard let (wFilter, sRect) = makeWindowFilter(for: scWindow, content: content) else { return }
+                    filter = wFilter
+                    sourceRect = sRect
+                    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+                    width = max(2, (Int(scWindow.frame.width * scale) / 2) * 2)
+                    height = max(2, (Int(scWindow.frame.height * scale) / 2) * 2)
+                }
+
+                try await recordingManager.startRecording(
+                    filter: filter, width: width, height: height,
+                    audioDevice: audioDevice, outputURL: outputURL, sourceRect: sourceRect
+                )
+            }
         } catch {
             await MainActor.run {
+                presentationModeManager.disable()
                 let alert = NSAlert()
                 alert.messageText = "Recording failed"
                 alert.informativeText = error.localizedDescription
@@ -408,7 +441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         let name: String
         if recordingManager.state == .recording {
-            name = "record.circle.fill"
+            name = recordingManager.isVirtualChromakey ? "camera.filters" : "record.circle.fill"
         } else {
             name = drawingView.isDrawingMode ? "pencil.tip" : "pencil.slash"
         }

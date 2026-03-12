@@ -1,7 +1,9 @@
+import AppKit
 import Foundation
 @preconcurrency import AVFoundation
 import ScreenCaptureKit
 import CoreMedia
+import CoreVideo
 
 enum RecordingState {
     case idle
@@ -26,6 +28,13 @@ class RecordingManager: NSObject {
     private var recordingStartDate: Date = Date()
     private var sessionStarted = false
     private var pendingAudioBuffers: [CMSampleBuffer] = []
+
+    // MARK: - Virtual chromakey state
+    private(set) var isVirtualChromakey: Bool = false
+    private var chromakeyTimer: DispatchSourceTimer?
+    private weak var chromakeyDrawingView: DrawingView?
+    private var chromakeyPixelBufferPool: CVPixelBufferPool?
+    private var chromakeyFrameCount: Int = 0
 
     // MARK: - Public API
 
@@ -144,6 +153,111 @@ class RecordingManager: NSObject {
         await MainActor.run { [weak self] in self?.onStateChanged?(.recording) }
     }
 
+    func startVirtualChromakeyRecording(
+        width: Int,
+        height: Int,
+        audioDevice: AVCaptureDevice?,
+        outputURL: URL,
+        drawingView: DrawingView
+    ) async throws {
+        guard state == .idle else { return }
+
+        recordingStartDate = Date()
+        sessionStarted = false
+        pendingAudioBuffers = []
+        isVirtualChromakey = true
+        chromakeyDrawingView = drawingView
+        chromakeyFrameCount = 0
+
+        let encodeWidth = (width / 2) * 2
+        let encodeHeight = (height / 2) * 2
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        let creationItem = AVMutableMetadataItem()
+        creationItem.identifier = .quickTimeMetadataCreationDate
+        creationItem.value = ISO8601DateFormatter().string(from: recordingStartDate) as NSString
+        writer.metadata = [creationItem]
+        self.assetWriter = writer
+
+        let videoInput = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: encodeWidth,
+                AVVideoHeightKey: encodeHeight,
+                AVVideoColorPropertiesKey: [
+                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+                ],
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoAverageBitRateKey: 8_000_000,
+                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                    AVVideoMaxKeyFrameIntervalKey: 60
+                ] as [String: Any]
+            ]
+        )
+        videoInput.expectsMediaDataInRealTime = true
+        self.videoInput = videoInput
+
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: videoInput,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: encodeWidth,
+                kCVPixelBufferHeightKey as String: encodeHeight,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+            ]
+        )
+        self.videoAdaptor = adaptor
+
+        if writer.canAdd(videoInput) { writer.add(videoInput) }
+
+        if audioDevice != nil {
+            let audioInput = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 44100.0,
+                    AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 128_000
+                ]
+            )
+            audioInput.expectsMediaDataInRealTime = true
+            self.audioInput = audioInput
+            if writer.canAdd(audioInput) { writer.add(audioInput) }
+        }
+
+        guard writer.startWriting() else {
+            throw writer.error ?? NSError(domain: "RecordingManager", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "AVAssetWriter.startWriting() failed"])
+        }
+
+        // Create pixel buffer pool for buffer reuse
+        var pool: CVPixelBufferPool?
+        CVPixelBufferPoolCreate(nil, nil, [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: encodeWidth,
+            kCVPixelBufferHeightKey as String: encodeHeight,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+        ] as CFDictionary, &pool)
+        chromakeyPixelBufferPool = pool
+
+        if let audioDevice = audioDevice {
+            startAudioCapture(device: audioDevice)
+        }
+
+        // Start 30fps timer on writingQueue
+        let timer = DispatchSource.makeTimerSource(queue: writingQueue)
+        timer.schedule(deadline: .now(), repeating: 1.0 / 30.0)
+        timer.setEventHandler { [weak self] in self?.renderChromakeyFrame() }
+        chromakeyTimer = timer
+        timer.resume()
+
+        state = .recording
+        await MainActor.run { [weak self] in self?.onStateChanged?(.recording) }
+    }
+
     func stopRecording() async {
         guard state == .recording else { return }
         state = .idle
@@ -154,12 +268,86 @@ class RecordingManager: NSObject {
         captureSession?.stopRunning()
         captureSession = nil
 
+        chromakeyTimer?.cancel()
+        chromakeyTimer = nil
+        isVirtualChromakey = false
+        chromakeyDrawingView = nil
+        chromakeyPixelBufferPool = nil
+        chromakeyFrameCount = 0
+
         await finishWriting()
 
         await MainActor.run { [weak self] in self?.onStateChanged?(.idle) }
     }
 
     // MARK: - Private
+
+    private func renderChromakeyFrame() {
+        guard state == .recording,
+              let writer = assetWriter,
+              writer.status == .writing,
+              let drawingView = chromakeyDrawingView,
+              let pool = chromakeyPixelBufferPool else { return }
+
+        chromakeyFrameCount += 1
+        let pts = CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 600)
+
+        if !sessionStarted {
+            sessionStarted = true
+            writer.startSession(atSourceTime: pts)
+            for buf in pendingAudioBuffers {
+                let bufPts = CMSampleBufferGetPresentationTimeStamp(buf)
+                if bufPts >= pts, let audioIn = audioInput, audioIn.isReadyForMoreMediaData {
+                    audioIn.append(buf)
+                }
+            }
+            pendingAudioBuffers = []
+        }
+
+        guard let adaptor = videoAdaptor, adaptor.assetWriterInput.isReadyForMoreMediaData else { return }
+
+        var pixelBuffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pixelBuffer) == kCVReturnSuccess,
+              let pb = pixelBuffer else { return }
+
+        CVPixelBufferLockBaseAddress(pb, [])
+
+        let w = CVPixelBufferGetWidth(pb)
+        let h = CVPixelBufferGetHeight(pb)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pb)
+
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pb),
+              let ctx = CGContext(
+                data: baseAddress,
+                width: w,
+                height: h,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
+              ) else {
+            CVPixelBufferUnlockBaseAddress(pb, [])
+            return
+        }
+
+        // Fill with chromakey background color
+        ctx.setFillColor(GreenScreenPreferences.color.cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+
+        // Both CGBitmapContext and unflipped NSView use Quartz coords (origin bottom-left, y upward).
+        // Only a scale is needed — no flip.
+        let viewSize: CGSize = DispatchQueue.main.sync { drawingView.bounds.size }
+        ctx.scaleBy(x: CGFloat(w) / viewSize.width, y: CGFloat(h) / viewSize.height)
+
+        // Render strokes on main thread (allStrokes + NSBezierPath drawing)
+        DispatchQueue.main.sync { drawingView.render(into: ctx) }
+
+        CVPixelBufferUnlockBaseAddress(pb, [])
+
+        if !adaptor.append(pb, withPresentationTime: pts) {
+            print("RecordingManager: chromakey frame drop — writer status \(writer.status.rawValue)")
+        }
+    }
 
     private func startAudioCapture(device: AVCaptureDevice) {
         let session = AVCaptureSession()
