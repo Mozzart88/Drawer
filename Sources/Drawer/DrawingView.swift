@@ -241,4 +241,18 @@ class DrawingView: NSView {
         currentStroke = nil
         setNeedsDisplay(bounds)
     }
+
+    var allStrokes: [StrokeData] {
+        var result = strokes
+        if let s = currentStroke { result.append(s) }
+        return result
+    }
+
+    func render(into cgContext: CGContext) {
+        let nsCtx = NSGraphicsContext(cgContext: cgContext, flipped: false)
+        let previous = NSGraphicsContext.current
+        NSGraphicsContext.current = nsCtx
+        defer { NSGraphicsContext.current = previous }
+        for stroke in allStrokes { drawStroke(stroke) }
+    }
 }
