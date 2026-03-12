@@ -81,6 +81,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+
+        // Request permissions at startup so the user can grant them before first use.
+        requestPermissions()
+    }
+
+    private func requestPermissions() {
+        // Screen recording — CGRequestScreenCaptureAccess triggers the system permission
+        // dialog on first run. Actual content is fetched later when the recording panel opens.
+        CGRequestScreenCaptureAccess()
+
+        // Accessibility — required for global .keyDown monitoring (key casting).
+        // Request always so the user can grant it before they start recording.
+        if !AXIsProcessTrusted() {
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            AXIsProcessTrustedWithOptions(opts)
+        }
     }
 
     @objc func toggleDrawing() {
@@ -142,15 +158,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // .keyDown global monitoring requires Accessibility permission.
         // .flagsChanged works without it, which is why modifiers highlight but keys don't appear.
-        if !AXIsProcessTrusted() {
-            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            AXIsProcessTrustedWithOptions(opts)
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Access Required"
-            alert.informativeText = "Key Casting needs Accessibility access to capture keyboard input. Please grant access in System Settings › Privacy & Security › Accessibility, then start recording again."
-            alert.runModal()
-            return
-        }
+        // The user was already prompted at startup; silently skip if they haven't granted it yet.
+        guard AXIsProcessTrusted() else { return }
 
         let overlay = KeyCastOverlay()
         overlay.keyLifetime = RecordingPreferences.keyCastingLifetime
