@@ -20,7 +20,7 @@ class OverlayWindow: NSWindow {
         alphaValue = 1.0
     }
 
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { false }
 
     private(set) var isGreenScreenOn = false
 
