@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyCastMonitors: [Any] = []
     private var undoRedoMonitors: [Any] = []
     private var strokeHUD: StrokeHUDPanel?
+    private var previousApp: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -29,8 +30,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         drawingView = DrawingView(frame: overlayWindow.contentView!.bounds)
         drawingView.autoresizingMask = [.width, .height]
         overlayWindow.contentView!.addSubview(drawingView)
-        overlayWindow.makeKeyAndOrderFront(nil)
-        overlayWindow.makeFirstResponder(drawingView)
+        overlayWindow.orderFront(nil)
 
         NotificationCenter.default.addObserver(
             self,
@@ -123,10 +123,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func enableDrawing() {
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = front
+        }
         drawingView.isDrawingMode = true
         overlayWindow.ignoresMouseEvents = false
         updateStatusBarIcon()
-        overlayWindow.makeFirstResponder(drawingView)
         if strokeHUD == nil {
             strokeHUD = StrokeHUDPanel(drawingView: drawingView)
         }
@@ -138,6 +141,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.ignoresMouseEvents = true
         updateStatusBarIcon()
         strokeHUD?.orderOut(nil)
+        previousApp?.activate(options: .activateIgnoringOtherApps)
+        previousApp = nil
     }
 
     private func setupTabletProximityMonitor() {
