@@ -53,8 +53,8 @@ make clean    # remove build artifacts
 | F8  | Open color wheel |
 | F9  | Toggle drawing mode |
 | F10 | Clear all strokes |
-| ⌘ + C | Undo last stroke |
-| ⌘ + ⇧ + C | Revert last Undo |
+| ⌘ + Z | Undo last stroke |
+| ⌘ + ⇧ + Z | Revert last Undo |
 
 ## Disclaimer
 
