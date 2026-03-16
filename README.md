@@ -20,6 +20,7 @@ Draw on your screen, cast keystrokes, and record — all with global hotkeys.
 - Smooth Bezier curve rendering
 - Undo / redo strokes
 - Floating stroke HUD for quick property adjustments
+- Adjustable overlay opacity
 - Color wheel panel
 - Screen recording (full screen or specific window)
 - Virtual chromakey (alpha-channel transparent background recording)
@@ -28,6 +29,13 @@ Draw on your screen, cast keystrokes, and record — all with global hotkeys.
 - Touch Bar controls
 - Presentation mode (hides UI widgets and notifications while recording)
 - Global hotkeys (no need to focus the app)
+- Teleprompter overlay — fullscreen scrolling text display for presentations and recordings
+  - Loads any `.md` or `.txt` file; scroll position persisted per file
+  - Markdown rendering: headings, bold, italic, inline code, code blocks, blockquotes, lists, horizontal rules
+  - GitHub-flavored alert blocks (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) with distinct colors
+  - Manual scroll (hotkeys) and auto-scroll at configurable speed
+  - Click-to-copy on inline code and code blocks (hold ⌃ + ⌘ to enable pointer interaction while overlay is visible)
+  - Interaction disabled automatically when drawing mode is active
 
 ## Requirements
 
@@ -53,6 +61,11 @@ make clean    # remove build artifacts
 | F8  | Open color wheel |
 | F9  | Toggle drawing mode |
 | F10 | Clear all strokes |
+| ⌃ + F7  | Teleprompter — scroll up |
+| ⌃ + F8  | Teleprompter — toggle auto-scroll |
+| ⌃ + F9  | Teleprompter — scroll down |
+| ⌃ + F10 | Teleprompter — toggle visibility |
+| ⌃ + ⌘ + Click | Teleprompter — enable pointer (copy code, select text) |
 | ⌘ + Z | Undo last stroke |
 | ⌘ + ⇧ + Z | Revert last Undo |
 
