@@ -142,7 +142,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         drawingView.isDrawingMode = true
         overlayWindow.ignoresMouseEvents = false
-        teleprompterOverlay?.ignoresMouseEvents = true
+        teleprompterOverlay?.setDrawingMode(true)
         updateStatusBarIcon()
         if strokeHUD == nil {
             strokeHUD = StrokeHUDPanel(drawingView: drawingView)
@@ -153,7 +153,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func disableDrawing() {
         drawingView.isDrawingMode = false
         overlayWindow.ignoresMouseEvents = true
-        teleprompterOverlay?.ignoresMouseEvents = false
+        teleprompterOverlay?.setDrawingMode(false)
         updateStatusBarIcon()
         strokeHUD?.orderOut(nil)
         previousApp?.activate(options: .activateIgnoringOtherApps)

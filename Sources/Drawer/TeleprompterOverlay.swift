@@ -7,6 +7,9 @@ class TeleprompterOverlay: NSPanel {
     private var autoScrollTimer: Timer?
     private(set) var currentFilePath: String?
     private var cachedContent: String?
+    private var drawingModeActive = false
+    private var ctrlCmdHeld = false
+    private var modifierMonitors: [Any] = []
 
     init() {
         super.init(
@@ -22,9 +25,11 @@ class TeleprompterOverlay: NSPanel {
         isMovableByWindowBackground = true
         collectionBehavior = [.canJoinAllSpaces, .stationary]
         title = "Teleprompter"
+        ignoresMouseEvents = true
 
         setupViews()
         applyPreferences()
+        setupModifierMonitors()
 
         NotificationCenter.default.addObserver(
             self,
@@ -149,6 +154,36 @@ class TeleprompterOverlay: NSPanel {
         saveCurrentScrollPosition()
     }
 
+    private func setupModifierMonitors() {
+        let handler: (NSEvent) -> Void = { [weak self] event in
+            guard let self = self else { return }
+            let flags = event.modifierFlags
+            let held = flags.contains(.control) && flags.contains(.command)
+            guard held != self.ctrlCmdHeld else { return }
+            self.ctrlCmdHeld = held
+            self.updateMouseEventHandling()
+        }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: handler) {
+            modifierMonitors.append(m)
+        }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { event in
+            handler(event); return event
+        }) {
+            modifierMonitors.append(m)
+        }
+    }
+
+    private func updateMouseEventHandling() {
+        let interact = ctrlCmdHeld && !drawingModeActive
+        ignoresMouseEvents = !interact
+        textView.isSelectable = interact
+    }
+
+    func setDrawingMode(_ active: Bool) {
+        drawingModeActive = active
+        updateMouseEventHandling()
+    }
+
     func toggleVisibility() {
         isVisible ? orderOut(nil) : makeKeyAndOrderFront(nil)
     }
@@ -188,6 +223,7 @@ class TeleprompterOverlay: NSPanel {
 
     deinit {
         stopAutoScroll()
+        modifierMonitors.forEach { NSEvent.removeMonitor($0) }
         NotificationCenter.default.removeObserver(self)
     }
 }
