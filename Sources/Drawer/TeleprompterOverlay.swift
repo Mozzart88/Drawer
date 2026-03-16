@@ -6,6 +6,7 @@ class TeleprompterOverlay: NSPanel {
     private let backgroundView = NSView()
     private var autoScrollTimer: Timer?
     private(set) var currentFilePath: String?
+    private var cachedContent: String?
 
     init() {
         super.init(
@@ -69,21 +70,16 @@ class TeleprompterOverlay: NSPanel {
             setFrame(prefFrame, display: true)
         }
 
-        let color = TeleprompterPreferences.fontColor.withAlphaComponent(
-            CGFloat(TeleprompterPreferences.textOpacity)
-        )
-        let font = NSFont.systemFont(ofSize: CGFloat(TeleprompterPreferences.fontSize))
-
-        if let storage = textView.textStorage, storage.length > 0 {
-            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-            storage.addAttributes(attrs, range: NSRange(location: 0, length: storage.length))
+        // Re-render text with new preferences
+        if let content = cachedContent, let path = currentFilePath {
+            updateTextView(content: content, filePath: path)
+            textView.sizeToFit()
         }
-        textView.font = font
-        textView.textColor = color
 
         let bgColor = NSColor(teleprompterHex: TeleprompterPreferences.backgroundColorHex) ?? .black
-        let opacity = TeleprompterPreferences.backgroundOpacity
-        backgroundView.layer?.backgroundColor = bgColor.withAlphaComponent(CGFloat(opacity)).cgColor
+        backgroundView.layer?.backgroundColor = bgColor.withAlphaComponent(
+            CGFloat(TeleprompterPreferences.backgroundOpacity)
+        ).cgColor
         backgroundView.frame = contentView!.bounds
 
         if TeleprompterPreferences.autoScroll {
@@ -96,38 +92,39 @@ class TeleprompterOverlay: NSPanel {
     func loadFile(_ path: String) {
         currentFilePath = path
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        cachedContent = content
+        updateTextView(content: content, filePath: path)
+        textView.sizeToFit()
+        restoreScrollPosition(TeleprompterPreferences.scrollPosition(for: path))
+    }
 
+    private func updateTextView(content: String, filePath: String) {
         let font = NSFont.systemFont(ofSize: CGFloat(TeleprompterPreferences.fontSize))
         let color = TeleprompterPreferences.fontColor.withAlphaComponent(
             CGFloat(TeleprompterPreferences.textOpacity)
         )
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-        let attrStr = NSAttributedString(string: content, attributes: attrs)
+        let isMarkdown = filePath.hasSuffix(".md") || filePath.hasSuffix(".markdown")
+        let attrStr = isMarkdown
+            ? renderMarkdown(content, baseFont: font, color: color)
+            : NSAttributedString(string: content, attributes: [.font: font, .foregroundColor: color])
         textView.textStorage?.setAttributedString(attrStr)
-        textView.sizeToFit()
-
-        let savedPosition = TeleprompterPreferences.scrollPosition(for: path)
-        restoreScrollPosition(savedPosition)
     }
+
+    // MARK: - Scroll helpers
 
     private func restoreScrollPosition(_ position: Double) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             let clipView = self.scrollView.contentView
-            let docHeight = self.textView.frame.height
-            let visibleHeight = clipView.bounds.height
-            let maxScroll = max(0, docHeight - visibleHeight)
-            let y = CGFloat(position) * maxScroll
-            clipView.setBoundsOrigin(NSPoint(x: 0, y: y))
+            let maxScroll = max(0, self.textView.frame.height - clipView.bounds.height)
+            clipView.setBoundsOrigin(NSPoint(x: 0, y: CGFloat(position) * maxScroll))
             self.scrollView.reflectScrolledClipView(clipView)
         }
     }
 
     private func currentScrollFraction() -> Double {
         let clipView = scrollView.contentView
-        let docHeight = textView.frame.height
-        let visibleHeight = clipView.bounds.height
-        let maxScroll = max(0, docHeight - visibleHeight)
+        let maxScroll = max(0, textView.frame.height - clipView.bounds.height)
         guard maxScroll > 0 else { return 0 }
         return Double(clipView.bounds.origin.y / maxScroll)
     }
@@ -139,57 +136,38 @@ class TeleprompterOverlay: NSPanel {
 
     func scrollUp() {
         let clipView = scrollView.contentView
-        let newY = max(0, clipView.bounds.origin.y - 100)
-        clipView.setBoundsOrigin(NSPoint(x: 0, y: newY))
+        clipView.setBoundsOrigin(NSPoint(x: 0, y: max(0, clipView.bounds.origin.y - 100)))
         scrollView.reflectScrolledClipView(clipView)
         saveCurrentScrollPosition()
     }
 
     func scrollDown() {
         let clipView = scrollView.contentView
-        let docHeight = textView.frame.height
-        let maxScroll = max(0, docHeight - clipView.bounds.height)
-        let newY = min(maxScroll, clipView.bounds.origin.y + 100)
-        clipView.setBoundsOrigin(NSPoint(x: 0, y: newY))
+        let maxScroll = max(0, textView.frame.height - clipView.bounds.height)
+        clipView.setBoundsOrigin(NSPoint(x: 0, y: min(maxScroll, clipView.bounds.origin.y + 100)))
         scrollView.reflectScrolledClipView(clipView)
         saveCurrentScrollPosition()
     }
 
     func toggleVisibility() {
-        if isVisible {
-            orderOut(nil)
-        } else {
-            makeKeyAndOrderFront(nil)
-        }
+        isVisible ? orderOut(nil) : makeKeyAndOrderFront(nil)
     }
 
     func toggleAutoScroll() {
         TeleprompterPreferences.autoScroll = !TeleprompterPreferences.autoScroll
-        if TeleprompterPreferences.autoScroll {
-            startAutoScroll()
-        } else {
-            stopAutoScroll()
-        }
+        TeleprompterPreferences.autoScroll ? startAutoScroll() : stopAutoScroll()
     }
 
     func startAutoScroll() {
         stopAutoScroll()
-        let speed = TeleprompterPreferences.autoScrollSpeed
-        let fontSize = TeleprompterPreferences.fontSize
-        let pixelsPerSecond = speed * fontSize * 0.6
-
+        let pixelsPerSecond = TeleprompterPreferences.autoScrollSpeed * TeleprompterPreferences.fontSize * 0.6
         autoScrollTimer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let clipView = self.scrollView.contentView
-            let docHeight = self.textView.frame.height
-            let maxScroll = max(0, docHeight - clipView.bounds.height)
+            let maxScroll = max(0, self.textView.frame.height - clipView.bounds.height)
             let currentY = clipView.bounds.origin.y
-            if currentY >= maxScroll {
-                self.stopAutoScroll()
-                return
-            }
-            let newY = min(maxScroll, currentY + CGFloat(pixelsPerSecond / 30.0))
-            clipView.setBoundsOrigin(NSPoint(x: 0, y: newY))
+            if currentY >= maxScroll { self.stopAutoScroll(); return }
+            clipView.setBoundsOrigin(NSPoint(x: 0, y: min(maxScroll, currentY + CGFloat(pixelsPerSecond / 30.0))))
             self.scrollView.reflectScrolledClipView(clipView)
         }
         RunLoop.main.add(autoScrollTimer!, forMode: .common)
@@ -211,5 +189,230 @@ class TeleprompterOverlay: NSPanel {
     deinit {
         stopAutoScroll()
         NotificationCenter.default.removeObserver(self)
+    }
+}
+
+// MARK: - Markdown renderer
+
+private extension TeleprompterOverlay {
+
+    func renderMarkdown(_ text: String, baseFont: NSFont, color: NSColor) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        // Normalize line endings
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n")
+                        .replacingOccurrences(of: "\r", with: "\n")
+                        .components(separatedBy: "\n")
+        var i = 0
+
+        while i < lines.count {
+            let line = lines[i]
+
+            // ── Fenced code block ────────────────────────────────────────────
+            if line.hasPrefix("```") {
+                i += 1
+                var codeLines: [String] = []
+                while i < lines.count && !lines[i].hasPrefix("```") {
+                    codeLines.append(lines[i])
+                    i += 1
+                }
+                if i < lines.count { i += 1 } // skip closing ```
+                let codeFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.85, weight: .regular)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: codeFont,
+                    .foregroundColor: color.withAlphaComponent(0.8)
+                ]
+                let codeText = codeLines.joined(separator: "\n")
+                if !codeText.isEmpty {
+                    result.append(NSAttributedString(string: codeText + "\n", attributes: attrs))
+                }
+                continue
+            }
+
+            i += 1
+
+            // ── ATX Heading  # / ## / ### ────────────────────────────────────
+            let hashes = line.prefix(while: { $0 == "#" }).count
+            if hashes > 0 && hashes <= 6 {
+                let afterHashes = line.dropFirst(hashes)
+                if afterHashes.hasPrefix(" ") || afterHashes.isEmpty {
+                    let headingText = afterHashes.hasPrefix(" ") ? String(afterHashes.dropFirst()) : ""
+                    let scales: [CGFloat] = [1.8, 1.5, 1.3, 1.15, 1.05, 1.0]
+                    let scale = scales[min(hashes - 1, 5)]
+                    let headingFont = styledFont(base: baseFont, size: baseFont.pointSize * scale, bold: true, italic: false)
+                    let style = paragraphStyle(spaceBelow: 4, spaceAbove: hashes == 1 ? 8 : 4)
+                    result.append(renderInline(headingText, baseFont: headingFont, color: color, style: style))
+                    result.append(NSAttributedString(string: "\n", attributes: [.font: headingFont, .foregroundColor: color]))
+                    continue
+                }
+            }
+
+            // ── Horizontal rule  --- / *** / ___ ─────────────────────────────
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: baseFont,
+                    .foregroundColor: color.withAlphaComponent(0.35)
+                ]
+                result.append(NSAttributedString(string: "───────────────────────\n", attributes: attrs))
+                continue
+            }
+
+            // ── Blockquote  > ────────────────────────────────────────────────
+            if line.hasPrefix("> ") || line == ">" {
+                let quoteText = line.hasPrefix("> ") ? String(line.dropFirst(2)) : ""
+                let quoteColor = color.withAlphaComponent(0.65)
+                let style = paragraphStyle(spaceBelow: 0, headIndent: 20, firstLineIndent: 20)
+                result.append(renderInline(quoteText, baseFont: baseFont, color: quoteColor, style: style))
+                result.append(NSAttributedString(string: "\n", attributes: [.font: baseFont]))
+                continue
+            }
+
+            // ── Unordered list  - / * / + ─────────────────────────────────
+            if (line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ")) && line.count > 2 {
+                let itemText = "• " + String(line.dropFirst(2))
+                let style = paragraphStyle(spaceBelow: 0, headIndent: 20, firstLineIndent: 8)
+                result.append(renderInline(itemText, baseFont: baseFont, color: color, style: style))
+                result.append(NSAttributedString(string: "\n", attributes: [.font: baseFont]))
+                continue
+            }
+
+            // ── Ordered list  1. / 2. ───────────────────────────────────────
+            if let dotRange = line.range(of: "^[0-9]+\\. ", options: .regularExpression) {
+                let itemText = String(line[dotRange]) + String(line[dotRange.upperBound...])
+                let style = paragraphStyle(spaceBelow: 0, headIndent: 28, firstLineIndent: 8)
+                result.append(renderInline(itemText, baseFont: baseFont, color: color, style: style))
+                result.append(NSAttributedString(string: "\n", attributes: [.font: baseFont]))
+                continue
+            }
+
+            // ── Empty line ───────────────────────────────────────────────────
+            if trimmed.isEmpty {
+                result.append(NSAttributedString(
+                    string: "\n",
+                    attributes: [.font: baseFont, .foregroundColor: color]
+                ))
+                continue
+            }
+
+            // ── Normal paragraph ─────────────────────────────────────────────
+            let style = paragraphStyle(spaceBelow: 2)
+            result.append(renderInline(line, baseFont: baseFont, color: color, style: style))
+            result.append(NSAttributedString(string: "\n", attributes: [.font: baseFont, .foregroundColor: color]))
+        }
+
+        return result
+    }
+
+    /// Renders inline Markdown spans: **bold**, *italic*, ***bold+italic***, `code`, [link](url)
+    func renderInline(_ text: String, baseFont: NSFont, color: NSColor, style: NSParagraphStyle) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let chars = Array(text)
+        var i = 0
+        var pending = ""
+        var bold = false
+        var italic = false
+        var inCode = false
+
+        func flush() {
+            guard !pending.isEmpty else { return }
+            let font: NSFont
+            if inCode {
+                font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular)
+            } else {
+                font = styledFont(base: baseFont, size: baseFont.pointSize, bold: bold, italic: italic)
+            }
+            let c = inCode ? color.withAlphaComponent(0.85) : color
+            result.append(NSAttributedString(string: pending,
+                attributes: [.font: font, .foregroundColor: c, .paragraphStyle: style]))
+            pending = ""
+        }
+
+        while i < chars.count {
+            let c = chars[i]
+
+            // Inline code `…`
+            if c == "`" {
+                flush()
+                inCode.toggle()
+                i += 1
+                continue
+            }
+
+            if inCode {
+                pending.append(c)
+                i += 1
+                continue
+            }
+
+            // Bold+Italic ***…*** or ___…___
+            if i + 2 < chars.count &&
+               ((c == "*" && chars[i+1] == "*" && chars[i+2] == "*") ||
+                (c == "_" && chars[i+1] == "_" && chars[i+2] == "_")) {
+                flush()
+                if bold && italic { bold = false; italic = false }
+                else              { bold = true;  italic = true  }
+                i += 3
+                continue
+            }
+
+            // Bold **…** or __…__
+            if i + 1 < chars.count &&
+               ((c == "*" && chars[i+1] == "*") ||
+                (c == "_" && chars[i+1] == "_")) {
+                flush()
+                bold.toggle()
+                i += 2
+                continue
+            }
+
+            // Italic *…* (single star only; skip lone underscore to avoid mid-word splits)
+            if c == "*" {
+                flush()
+                italic.toggle()
+                i += 1
+                continue
+            }
+
+            // Link [text](url) → show text, discard URL
+            if c == "[" {
+                flush()
+                i += 1
+                var linkText = ""
+                while i < chars.count && chars[i] != "]" { linkText.append(chars[i]); i += 1 }
+                if i < chars.count { i += 1 } // skip ]
+                if i < chars.count && chars[i] == "(" {
+                    i += 1
+                    while i < chars.count && chars[i] != ")" { i += 1 }
+                    if i < chars.count { i += 1 } // skip )
+                }
+                pending = linkText
+                flush()
+                continue
+            }
+
+            pending.append(c)
+            i += 1
+        }
+
+        flush()
+        return result
+    }
+
+    func styledFont(base: NSFont, size: CGFloat, bold: Bool, italic: Bool) -> NSFont {
+        var traits = NSFontDescriptor.SymbolicTraits()
+        if bold   { traits.insert(.bold) }
+        if italic { traits.insert(.italic) }
+        let descriptor = base.fontDescriptor.withSymbolicTraits(traits)
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
+
+    func paragraphStyle(spaceBelow: CGFloat = 0, spaceAbove: CGFloat = 0,
+                        headIndent: CGFloat = 0, firstLineIndent: CGFloat = 0) -> NSParagraphStyle {
+        let s = NSMutableParagraphStyle()
+        s.paragraphSpacing = spaceBelow
+        s.paragraphSpacingBefore = spaceAbove
+        s.headIndent = headIndent
+        s.firstLineHeadIndent = firstLineIndent
+        return s
     }
 }
