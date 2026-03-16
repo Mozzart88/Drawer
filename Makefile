@@ -44,6 +44,7 @@ run: build
 	open Drawer.app
 
 install: build
+	rm -fr /Applications/Drawer.app
 	cp -r Drawer.app /Applications/Drawer.app
 
 clean:
