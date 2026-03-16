@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
 
@@ -33,7 +34,32 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     private var recordButton: NSButton!
     private var statusLabel: NSTextField!
 
+    var teleprompterOverlay: TeleprompterOverlay?
+
     private var keyCastPreview: KeyCastOverlay?
+
+    private var teleprompterCheck: NSButton!
+    private var teleprompterFileRow: NSView!
+    private var teleprompterFilePathField: NSTextField!
+    private var teleprompterFontSizeRow: NSView!
+    private var teleprompterFontSizeField: NSTextField!
+    private var teleprompterFontColorRow: NSView!
+    private var teleprompterFontColorWell: NSColorWell!
+    private var teleprompterTextOpacityRow: NSView!
+    private var teleprompterTextOpacityField: NSTextField!
+    private var teleprompterTextOpacitySlider: NSSlider!
+    private var teleprompterSizeRow: NSView!
+    private var teleprompterWidthField: NSTextField!
+    private var teleprompterHeightField: NSTextField!
+    private var teleprompterBgColorRow: NSView!
+    private var teleprompterBgColorWell: NSColorWell!
+    private var teleprompterBgOpacityRow: NSView!
+    private var teleprompterBgOpacityField: NSTextField!
+    private var teleprompterBgOpacitySlider: NSSlider!
+    private var teleprompterAutoScrollRow: NSView!
+    private var teleprompterAutoScrollCheck: NSButton!
+    private var teleprompterSpeedRow: NSView!
+    private var teleprompterSpeedField: NSTextField!
 
     private var shareableContent: SCShareableContent?
     private var audioDevices: [AVCaptureDevice] = []
@@ -47,7 +73,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
 
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 662),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 1060),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -66,14 +92,14 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     // MARK: - UI Setup
 
     private func setupUI() {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 662))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 1060))
         contentView = content
 
         let lx: CGFloat = 10
         let lw: CGFloat = 90
         let cx: CGFloat = 108
         let cw: CGFloat = 282
-        var y: CGFloat = 620
+        var y: CGFloat = 1018
         let rh: CGFloat = 26
         let rs: CGFloat = 38
 
@@ -274,6 +300,198 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         content.addSubview(keyCastHintLabel)
         y -= rs - 4
 
+        // ─── Teleprompter section ───
+        let tpSep = NSBox(frame: NSRect(x: lx, y: y + 20, width: 380, height: 1))
+        tpSep.boxType = .separator
+        content.addSubview(tpSep)
+        let tpHeader = NSTextField(labelWithString: "Teleprompter")
+        tpHeader.frame = NSRect(x: lx, y: y + 2, width: 380, height: 20)
+        tpHeader.alignment = .center
+        tpHeader.font = NSFont.boldSystemFont(ofSize: 13)
+        content.addSubview(tpHeader)
+        y -= 30
+
+        // Enable teleprompter
+        teleprompterCheck = NSButton(frame: NSRect(x: cx, y: y + 2, width: cw, height: 22))
+        teleprompterCheck.setButtonType(.switch)
+        teleprompterCheck.title = "Enable Teleprompter"
+        teleprompterCheck.target = self
+        teleprompterCheck.action = #selector(teleprompterToggled)
+        content.addSubview(teleprompterCheck)
+        y -= rs - 4
+
+        // Source file row
+        let tpFileRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 26))
+        teleprompterFileRow = tpFileRow
+        let tpFileLbl = NSTextField(labelWithString: "File:")
+        tpFileLbl.frame = NSRect(x: 0, y: 3, width: 30, height: 20)
+        tpFileLbl.font = NSFont.systemFont(ofSize: 13)
+        tpFileRow.addSubview(tpFileLbl)
+        teleprompterFilePathField = NSTextField(frame: NSRect(x: 35, y: 0, width: cw - 16 - 35 - 68, height: 26))
+        teleprompterFilePathField.isEditable = false
+        teleprompterFilePathField.usesSingleLineMode = true
+        teleprompterFilePathField.lineBreakMode = .byTruncatingMiddle
+        teleprompterFilePathField.placeholderString = "No file selected"
+        tpFileRow.addSubview(teleprompterFilePathField)
+        let tpBrowseBtn = NSButton(frame: NSRect(x: cw - 16 - 65, y: 0, width: 62, height: 26))
+        tpBrowseBtn.title = "Browse…"
+        tpBrowseBtn.bezelStyle = .rounded
+        tpBrowseBtn.target = self
+        tpBrowseBtn.action = #selector(browseForTeleprompterFile)
+        tpFileRow.addSubview(tpBrowseBtn)
+        content.addSubview(tpFileRow)
+        y -= rs - 4
+
+        // Font size
+        let tpFontSizeRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterFontSizeRow = tpFontSizeRow
+        let tpFontSizeLbl = NSTextField(labelWithString: "Font size:")
+        tpFontSizeLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        tpFontSizeLbl.font = NSFont.systemFont(ofSize: 13)
+        tpFontSizeRow.addSubview(tpFontSizeLbl)
+        teleprompterFontSizeField = NSTextField(frame: NSRect(x: 106, y: 0, width: 50, height: 22))
+        teleprompterFontSizeField.stringValue = "28"
+        teleprompterFontSizeField.isEditable = true
+        teleprompterFontSizeField.delegate = self
+        tpFontSizeRow.addSubview(teleprompterFontSizeField)
+        let tpFontPtLbl = NSTextField(labelWithString: "pt")
+        tpFontPtLbl.frame = NSRect(x: 162, y: 1, width: 30, height: 20)
+        tpFontPtLbl.font = NSFont.systemFont(ofSize: 13)
+        tpFontSizeRow.addSubview(tpFontPtLbl)
+        content.addSubview(tpFontSizeRow)
+        y -= rs - 4
+
+        // Font color
+        let tpFontColorRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterFontColorRow = tpFontColorRow
+        let tpFontColorLbl = NSTextField(labelWithString: "Font color:")
+        tpFontColorLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        tpFontColorLbl.font = NSFont.systemFont(ofSize: 13)
+        tpFontColorRow.addSubview(tpFontColorLbl)
+        teleprompterFontColorWell = ActivatingColorWell(frame: NSRect(x: 106, y: 0, width: 44, height: 22))
+        teleprompterFontColorWell.color = .white
+        teleprompterFontColorWell.target = self
+        teleprompterFontColorWell.action = #selector(teleprompterFontColorChanged)
+        tpFontColorRow.addSubview(teleprompterFontColorWell)
+        content.addSubview(tpFontColorRow)
+        y -= rs - 4
+
+        // Text opacity
+        let tpOpacityRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterTextOpacityRow = tpOpacityRow
+        let tpOpacityLbl = NSTextField(labelWithString: "Text opacity:")
+        tpOpacityLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        tpOpacityLbl.font = NSFont.systemFont(ofSize: 13)
+        tpOpacityRow.addSubview(tpOpacityLbl)
+        teleprompterTextOpacityField = NSTextField(frame: NSRect(x: 106, y: 0, width: 40, height: 22))
+        teleprompterTextOpacityField.stringValue = "1.00"
+        teleprompterTextOpacityField.isEditable = true
+        teleprompterTextOpacityField.delegate = self
+        tpOpacityRow.addSubview(teleprompterTextOpacityField)
+        teleprompterTextOpacitySlider = NSSlider(frame: NSRect(x: 152, y: 0, width: 90, height: 22))
+        teleprompterTextOpacitySlider.minValue = 0
+        teleprompterTextOpacitySlider.maxValue = 1
+        teleprompterTextOpacitySlider.doubleValue = 1.0
+        teleprompterTextOpacitySlider.isContinuous = true
+        teleprompterTextOpacitySlider.target = self
+        teleprompterTextOpacitySlider.action = #selector(teleprompterTextOpacitySliderChanged)
+        tpOpacityRow.addSubview(teleprompterTextOpacitySlider)
+        content.addSubview(tpOpacityRow)
+        y -= rs - 4
+
+        // Overlay size (W × H)
+        let tpSizeRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterSizeRow = tpSizeRow
+        let tpSizeLbl = NSTextField(labelWithString: "Size (W × H):")
+        tpSizeLbl.frame = NSRect(x: 0, y: 1, width: 110, height: 20)
+        tpSizeLbl.font = NSFont.systemFont(ofSize: 13)
+        tpSizeRow.addSubview(tpSizeLbl)
+        teleprompterWidthField = NSTextField(frame: NSRect(x: 116, y: 0, width: 50, height: 22))
+        teleprompterWidthField.stringValue = "400"
+        teleprompterWidthField.isEditable = true
+        teleprompterWidthField.delegate = self
+        tpSizeRow.addSubview(teleprompterWidthField)
+        let tpSizeXLbl = NSTextField(labelWithString: "×")
+        tpSizeXLbl.frame = NSRect(x: 172, y: 1, width: 14, height: 20)
+        tpSizeXLbl.font = NSFont.systemFont(ofSize: 13)
+        tpSizeRow.addSubview(tpSizeXLbl)
+        teleprompterHeightField = NSTextField(frame: NSRect(x: 192, y: 0, width: 50, height: 22))
+        teleprompterHeightField.stringValue = "300"
+        teleprompterHeightField.isEditable = true
+        teleprompterHeightField.delegate = self
+        tpSizeRow.addSubview(teleprompterHeightField)
+        content.addSubview(tpSizeRow)
+        y -= rs - 4
+
+        // Background color
+        let tpBgColorRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterBgColorRow = tpBgColorRow
+        let tpBgColorLbl = NSTextField(labelWithString: "BG color:")
+        tpBgColorLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        tpBgColorLbl.font = NSFont.systemFont(ofSize: 13)
+        tpBgColorRow.addSubview(tpBgColorLbl)
+        teleprompterBgColorWell = ActivatingColorWell(frame: NSRect(x: 106, y: 0, width: 44, height: 22))
+        teleprompterBgColorWell.color = .black
+        teleprompterBgColorWell.target = self
+        teleprompterBgColorWell.action = #selector(teleprompterBgColorChanged)
+        tpBgColorRow.addSubview(teleprompterBgColorWell)
+        content.addSubview(tpBgColorRow)
+        y -= rs - 4
+
+        // Background opacity
+        let tpBgOpacityRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterBgOpacityRow = tpBgOpacityRow
+        let tpBgOpacityLbl = NSTextField(labelWithString: "BG opacity:")
+        tpBgOpacityLbl.frame = NSRect(x: 0, y: 1, width: 100, height: 20)
+        tpBgOpacityLbl.font = NSFont.systemFont(ofSize: 13)
+        tpBgOpacityRow.addSubview(tpBgOpacityLbl)
+        teleprompterBgOpacityField = NSTextField(frame: NSRect(x: 106, y: 0, width: 40, height: 22))
+        teleprompterBgOpacityField.stringValue = "0.70"
+        teleprompterBgOpacityField.isEditable = true
+        teleprompterBgOpacityField.delegate = self
+        tpBgOpacityRow.addSubview(teleprompterBgOpacityField)
+        teleprompterBgOpacitySlider = NSSlider(frame: NSRect(x: 152, y: 0, width: 90, height: 22))
+        teleprompterBgOpacitySlider.minValue = 0
+        teleprompterBgOpacitySlider.maxValue = 1
+        teleprompterBgOpacitySlider.doubleValue = 0.7
+        teleprompterBgOpacitySlider.isContinuous = true
+        teleprompterBgOpacitySlider.target = self
+        teleprompterBgOpacitySlider.action = #selector(teleprompterBgOpacitySliderChanged)
+        tpBgOpacityRow.addSubview(teleprompterBgOpacitySlider)
+        content.addSubview(tpBgOpacityRow)
+        y -= rs - 4
+
+        // Auto-scroll toggle
+        let tpAutoScrollRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterAutoScrollRow = tpAutoScrollRow
+        teleprompterAutoScrollCheck = NSButton(frame: NSRect(x: 0, y: 0, width: cw - 16, height: 22))
+        teleprompterAutoScrollCheck.setButtonType(.switch)
+        teleprompterAutoScrollCheck.title = "Auto-Scroll"
+        teleprompterAutoScrollCheck.target = self
+        teleprompterAutoScrollCheck.action = #selector(teleprompterAutoScrollToggled)
+        tpAutoScrollRow.addSubview(teleprompterAutoScrollCheck)
+        content.addSubview(tpAutoScrollRow)
+        y -= rs - 4
+
+        // Auto-scroll speed (sub-row)
+        let tpSpeedRow = NSView(frame: NSRect(x: cx + 32, y: y, width: cw - 32, height: 22))
+        teleprompterSpeedRow = tpSpeedRow
+        let tpSpeedLbl = NSTextField(labelWithString: "Speed:")
+        tpSpeedLbl.frame = NSRect(x: 0, y: 1, width: 60, height: 20)
+        tpSpeedLbl.font = NSFont.systemFont(ofSize: 13)
+        tpSpeedRow.addSubview(tpSpeedLbl)
+        teleprompterSpeedField = NSTextField(frame: NSRect(x: 66, y: 0, width: 50, height: 22))
+        teleprompterSpeedField.stringValue = "2.5"
+        teleprompterSpeedField.isEditable = true
+        teleprompterSpeedField.delegate = self
+        tpSpeedRow.addSubview(teleprompterSpeedField)
+        let tpSpeedUnitLbl = NSTextField(labelWithString: "wps")
+        tpSpeedUnitLbl.frame = NSRect(x: 122, y: 1, width: 30, height: 20)
+        tpSpeedUnitLbl.font = NSFont.systemFont(ofSize: 13)
+        tpSpeedRow.addSubview(tpSpeedUnitLbl)
+        content.addSubview(tpSpeedRow)
+        y -= rs - 4
+
         // Status label
         statusLabel = NSTextField(frame: NSRect(x: lx, y: y, width: 380, height: 18))
         statusLabel.isEditable = false
@@ -304,17 +522,47 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        guard let field = obj.object as? NSTextField, let overlay = keyCastPreview else { return }
-        if field === keyCastKeyFontField, let v = Double(field.stringValue), v > 0 {
-            overlay.keyFontSize = CGFloat(v)
-        } else if field === keyCastModFontField, let v = Double(field.stringValue), v > 0 {
-            overlay.modifierFontSize = CGFloat(v)
-        } else if field === keyCastBgOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
-            keyCastBgOpacitySlider.doubleValue = v
-            overlay.overlayBackgroundOpacity = CGFloat(v)
-        } else if field === keyCastDemoTextField {
-            overlay.demoText = field.stringValue.isEmpty ? "Hello ⎵ World" : field.stringValue
-            overlay.showDemoText()
+        guard let field = obj.object as? NSTextField else { return }
+
+        // Key casting fields
+        if let overlay = keyCastPreview {
+            if field === keyCastKeyFontField, let v = Double(field.stringValue), v > 0 {
+                overlay.keyFontSize = CGFloat(v)
+            } else if field === keyCastModFontField, let v = Double(field.stringValue), v > 0 {
+                overlay.modifierFontSize = CGFloat(v)
+            } else if field === keyCastBgOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
+                keyCastBgOpacitySlider.doubleValue = v
+                overlay.overlayBackgroundOpacity = CGFloat(v)
+            } else if field === keyCastDemoTextField {
+                overlay.demoText = field.stringValue.isEmpty ? "Hello ⎵ World" : field.stringValue
+                overlay.showDemoText()
+            }
+        }
+
+        // Teleprompter fields
+        if field === teleprompterFontSizeField, let v = Double(field.stringValue), v > 0 {
+            TeleprompterPreferences.fontSize = v
+            teleprompterOverlay?.applyPreferences()
+        } else if field === teleprompterTextOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
+            teleprompterTextOpacitySlider.doubleValue = v
+            TeleprompterPreferences.textOpacity = v
+            teleprompterOverlay?.applyPreferences()
+        } else if field === teleprompterBgOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
+            teleprompterBgOpacitySlider.doubleValue = v
+            TeleprompterPreferences.backgroundOpacity = v
+            teleprompterOverlay?.applyPreferences()
+        } else if field === teleprompterWidthField, let w = Double(field.stringValue), w > 0 {
+            var f = TeleprompterPreferences.overlayFrame
+            f.size.width = CGFloat(w)
+            TeleprompterPreferences.overlayFrame = f
+            teleprompterOverlay?.applyPreferences()
+        } else if field === teleprompterHeightField, let h = Double(field.stringValue), h > 0 {
+            var f = TeleprompterPreferences.overlayFrame
+            f.size.height = CGFloat(h)
+            TeleprompterPreferences.overlayFrame = f
+            teleprompterOverlay?.applyPreferences()
+        } else if field === teleprompterSpeedField, let v = Double(field.stringValue), v > 0 {
+            TeleprompterPreferences.autoScrollSpeed = v
         }
     }
 
@@ -383,6 +631,26 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         keyCastDemoTextRow.isHidden = !keyCastOn
         keyCastHintLabel.isHidden = !keyCastOn
         if keyCastOn { showKeyCastPreview() }
+
+        // Restore teleprompter preferences
+        let tpOn = TeleprompterPreferences.enabled
+        teleprompterCheck.state = tpOn ? .on : .off
+        if let path = TeleprompterPreferences.filePath {
+            teleprompterFilePathField.stringValue = path
+        }
+        teleprompterFontSizeField.stringValue = "\(Int(TeleprompterPreferences.fontSize))"
+        teleprompterFontColorWell.color = TeleprompterPreferences.fontColor
+        teleprompterTextOpacityField.stringValue = String(format: "%.2f", TeleprompterPreferences.textOpacity)
+        teleprompterTextOpacitySlider.doubleValue = TeleprompterPreferences.textOpacity
+        let overlayFrame = TeleprompterPreferences.overlayFrame
+        teleprompterWidthField.stringValue = "\(Int(overlayFrame.width))"
+        teleprompterHeightField.stringValue = "\(Int(overlayFrame.height))"
+        teleprompterBgColorWell.color = NSColor(teleprompterHex: TeleprompterPreferences.backgroundColorHex) ?? .black
+        teleprompterBgOpacityField.stringValue = String(format: "%.2f", TeleprompterPreferences.backgroundOpacity)
+        teleprompterBgOpacitySlider.doubleValue = TeleprompterPreferences.backgroundOpacity
+        teleprompterAutoScrollCheck.state = TeleprompterPreferences.autoScroll ? .on : .off
+        teleprompterSpeedField.stringValue = String(format: "%.1f", TeleprompterPreferences.autoScrollSpeed)
+        updateTeleprompterSubcontrols()
 
         // Shareable content (async — requires screen recording permission)
         Task {
@@ -502,6 +770,87 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         keyCastPreview?.overlayBackgroundOpacity = CGFloat(v)
     }
 
+    // MARK: - Teleprompter Actions
+
+    @objc private func teleprompterToggled() {
+        let on = teleprompterCheck.state == .on
+        TeleprompterPreferences.enabled = on
+        updateTeleprompterSubcontrols()
+        if on, let path = TeleprompterPreferences.filePath {
+            teleprompterOverlay?.loadFile(path)
+            teleprompterOverlay?.makeKeyAndOrderFront(nil)
+        } else if !on {
+            teleprompterOverlay?.orderOut(nil)
+        }
+    }
+
+    @objc private func browseForTeleprompterFile() {
+        let panel = NSOpenPanel()
+        let mdType = UTType(filenameExtension: "md") ?? .plainText
+        panel.allowedContentTypes = [.plainText, mdType]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.beginSheetModal(for: self) { [weak self] response in
+            guard let self = self, response == .OK, let url = panel.url else { return }
+            let path = url.path
+            TeleprompterPreferences.filePath = path
+            self.teleprompterFilePathField.stringValue = path
+            self.teleprompterOverlay?.loadFile(path)
+            if TeleprompterPreferences.enabled {
+                self.teleprompterOverlay?.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+
+    @objc private func teleprompterFontColorChanged() {
+        TeleprompterPreferences.fontColor = teleprompterFontColorWell.color
+        teleprompterOverlay?.applyPreferences()
+    }
+
+    @objc private func teleprompterTextOpacitySliderChanged() {
+        let v = teleprompterTextOpacitySlider.doubleValue
+        teleprompterTextOpacityField.stringValue = String(format: "%.2f", v)
+        TeleprompterPreferences.textOpacity = v
+        teleprompterOverlay?.applyPreferences()
+    }
+
+    @objc private func teleprompterBgColorChanged() {
+        TeleprompterPreferences.backgroundColorHex = teleprompterBgColorWell.color.teleprompterHexString
+        teleprompterOverlay?.applyPreferences()
+    }
+
+    @objc private func teleprompterBgOpacitySliderChanged() {
+        let v = teleprompterBgOpacitySlider.doubleValue
+        teleprompterBgOpacityField.stringValue = String(format: "%.2f", v)
+        TeleprompterPreferences.backgroundOpacity = v
+        teleprompterOverlay?.applyPreferences()
+    }
+
+    @objc private func teleprompterAutoScrollToggled() {
+        updateTeleprompterSubcontrols()
+        let autoScrollOn = teleprompterAutoScrollCheck.state == .on
+        TeleprompterPreferences.autoScroll = autoScrollOn
+        if autoScrollOn {
+            teleprompterOverlay?.startAutoScroll()
+        } else {
+            teleprompterOverlay?.stopAutoScroll()
+        }
+    }
+
+    private func updateTeleprompterSubcontrols() {
+        let on = teleprompterCheck.state == .on
+        teleprompterFileRow.isHidden = !on
+        teleprompterFontSizeRow.isHidden = !on
+        teleprompterFontColorRow.isHidden = !on
+        teleprompterTextOpacityRow.isHidden = !on
+        teleprompterSizeRow.isHidden = !on
+        teleprompterBgColorRow.isHidden = !on
+        teleprompterBgOpacityRow.isHidden = !on
+        teleprompterAutoScrollRow.isHidden = !on
+        let autoScrollOn = on && teleprompterAutoScrollCheck.state == .on
+        teleprompterSpeedRow.isHidden = !autoScrollOn
+    }
+
     private func showKeyCastPreview() {
         hideKeyCastPreview()
         let overlay = KeyCastOverlay()
@@ -566,7 +915,18 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         if modeSegment.selectedSegment == 0 {
             // Full screen — use NSScreen physical pixels (SCDisplay.width is in logical points)
             guard let display = content.displays.first else { return }
-            filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+            let myBundleID = Bundle.main.bundleIdentifier ?? ""
+            let teleprompterWindowID = UInt32(teleprompterOverlay?.windowNumber ?? -1)
+            let myApp = content.applications.first { $0.bundleIdentifier == myBundleID }
+            let drawerWindowsToKeep = content.windows.filter {
+                $0.owningApplication?.bundleIdentifier == myBundleID &&
+                $0.windowID != teleprompterWindowID
+            }
+            if let app = myApp {
+                filter = SCContentFilter(display: display, excludingApplications: [app], exceptingWindows: drawerWindowsToKeep)
+            } else {
+                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+            }
             let screen = NSScreen.main ?? NSScreen.screens[0]
             let scale = screen.backingScaleFactor
             width = (Int(screen.frame.width * scale) / 2) * 2
@@ -621,8 +981,10 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
                   ?? content.displays.first else { return nil }
 
         let myBundleID = Bundle.main.bundleIdentifier ?? ""
+        let teleprompterWindowID = UInt32(teleprompterOverlay?.windowNumber ?? -1)
         let overlayWindows = content.windows.filter {
-            $0.owningApplication?.bundleIdentifier == myBundleID
+            $0.owningApplication?.bundleIdentifier == myBundleID &&
+            $0.windowID != teleprompterWindowID
         }
 
         let filter = SCContentFilter(display: display, including: [scWindow] + overlayWindows)

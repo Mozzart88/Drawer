@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var greenScreenMenuItem: NSMenuItem!
     private var tabletProximityMonitors: [Any] = []
     private var drawingAutoEnabledByTablet = false
+    private var teleprompterOverlay: TeleprompterOverlay?
     private var keyCastOverlay: KeyCastOverlay?
     private var keyCastMonitors: [Any] = []
     private var undoRedoMonitors: [Any] = []
@@ -68,6 +69,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             toggleRecording: { [weak self] in self?.toggleRecording() },
             toggleGreenScreen: { [weak self] in self?.toggleGreenScreen() }
         )
+
+        // Teleprompter
+        let teleprompterOverlay = TeleprompterOverlay()
+        self.teleprompterOverlay = teleprompterOverlay
+        if TeleprompterPreferences.enabled, let path = TeleprompterPreferences.filePath {
+            teleprompterOverlay.loadFile(path)
+            teleprompterOverlay.makeKeyAndOrderFront(nil)
+        }
+        hotkeyManager.onTeleprompterScrollUp = { [weak teleprompterOverlay] in teleprompterOverlay?.scrollUp() }
+        hotkeyManager.onTeleprompterScrollDown = { [weak teleprompterOverlay] in teleprompterOverlay?.scrollDown() }
+        hotkeyManager.onTeleprompterToggleVisibility = { [weak teleprompterOverlay] in teleprompterOverlay?.toggleVisibility() }
+        hotkeyManager.onTeleprompterToggleAutoScroll = { [weak teleprompterOverlay] in teleprompterOverlay?.toggleAutoScroll() }
 
         // Status bar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -129,6 +142,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         drawingView.isDrawingMode = true
         overlayWindow.ignoresMouseEvents = false
+        teleprompterOverlay?.ignoresMouseEvents = true
         updateStatusBarIcon()
         if strokeHUD == nil {
             strokeHUD = StrokeHUDPanel(drawingView: drawingView)
@@ -139,6 +153,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func disableDrawing() {
         drawingView.isDrawingMode = false
         overlayWindow.ignoresMouseEvents = true
+        teleprompterOverlay?.ignoresMouseEvents = false
         updateStatusBarIcon()
         strokeHUD?.orderOut(nil)
         previousApp?.activate(options: .activateIgnoringOtherApps)
@@ -332,6 +347,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showRecordingPanel() {
         let panel = RecordingControlPanel()
+        panel.teleprompterOverlay = teleprompterOverlay
         recordingControlPanel = panel
         panel.onRecord = { [weak self] filter, width, height, audioDevice, outputURL, presentationMode, sourceRect, virtualChromakey, alphaChannel in
             guard let self = self else { return }
@@ -377,6 +393,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resumeRecording() async {
+        let teleprompterWindowID = await MainActor.run { UInt32(self.teleprompterOverlay?.windowNumber ?? -1) }
         let dir = RecordingPreferences.saveDirectory
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
@@ -423,7 +440,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 if RecordingPreferences.recordingMode == 0 {
                     guard let display = content.displays.first else { return }
-                    filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                    let myBundleID = Bundle.main.bundleIdentifier ?? ""
+                    let myApp = content.applications.first { $0.bundleIdentifier == myBundleID }
+                    let drawerWindowsToKeep = content.windows.filter {
+                        $0.owningApplication?.bundleIdentifier == myBundleID &&
+                        $0.windowID != teleprompterWindowID
+                    }
+                    if let app = myApp {
+                        filter = SCContentFilter(display: display, excludingApplications: [app], exceptingWindows: drawerWindowsToKeep)
+                    } else {
+                        filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                    }
                     let screen = NSScreen.main ?? NSScreen.screens[0]
                     let scale = screen.backingScaleFactor
                     width = (Int(screen.frame.width * scale) / 2) * 2
@@ -475,8 +502,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let display = content.displays.first(where: { $0.frame.intersects(scWindow.frame) })
                   ?? content.displays.first else { return nil }
         let myBundleID = Bundle.main.bundleIdentifier ?? ""
+        let teleprompterWindowID = UInt32(teleprompterOverlay?.windowNumber ?? -1)
         let overlayWindows = content.windows.filter {
-            $0.owningApplication?.bundleIdentifier == myBundleID
+            $0.owningApplication?.bundleIdentifier == myBundleID &&
+            $0.windowID != teleprompterWindowID
         }
         let filter = SCContentFilter(display: display, including: [scWindow] + overlayWindows)
         let dispFrame = display.frame
