@@ -1,9 +1,60 @@
 import AppKit
 
+private extension NSAttributedString.Key {
+    static let codeType = NSAttributedString.Key("drawer.codeType") // "inline" | "block"
+}
+
+private class CopyButton: NSButton {
+    var codeContent: String = ""
+}
+
+private class TeleprompterTextView: NSTextView {
+
+    /// Checks whether `event` lands on a `.codeType` run and, if so, copies the
+    /// appropriate text to the pasteboard.  Called from the overlay's local event
+    /// monitor which has already verified that Ctrl+Cmd is held — no modifier
+    /// re-check needed here.
+    /// - Returns: `true` if a copy was performed and the event should be swallowed.
+    fileprivate func copyCodeIfHit(at event: NSEvent) -> Bool {
+        guard let storage = textStorage,
+              let lm = layoutManager,
+              let tc = textContainer else { return false }
+
+        // `characterIndex(for:in:)` expects text-container coordinates,
+        // not text-view coordinates — subtract the inset to convert.
+        let rawPoint = convert(event.locationInWindow, from: nil)
+        let inset = textContainerInset
+        let point = NSPoint(x: rawPoint.x - inset.width, y: rawPoint.y - inset.height)
+        let charIdx = lm.characterIndex(for: point, in: tc,
+                                         fractionOfDistanceBetweenInsertionPoints: nil)
+        guard charIdx < storage.length else { return false }
+
+        var effectiveRange = NSRange()
+        guard let type = storage.attribute(.codeType, at: charIdx,
+                                            effectiveRange: &effectiveRange) as? String
+        else { return false }
+
+        let nsString = storage.string as NSString
+        let textToCopy: String
+        if type == "inline" {
+            textToCopy = nsString.substring(with: effectiveRange)
+        } else { // "block" — copy only the clicked line
+            let lineRange = nsString.lineRange(for: NSRange(location: charIdx, length: 0))
+            textToCopy = nsString.substring(with: lineRange)
+                .trimmingCharacters(in: .newlines)
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(textToCopy, forType: .string)
+        return true
+    }
+}
+
 class TeleprompterOverlay: NSPanel {
     private let scrollView = NSScrollView()
-    private let textView = NSTextView()
+    private var textView = TeleprompterTextView()
     private let backgroundView = NSView()
+    private var copyButtons: [NSButton] = []
     private var autoScrollTimer: Timer?
     private(set) var currentFilePath: String?
     private var cachedContent: String?
@@ -56,6 +107,7 @@ class TeleprompterOverlay: NSPanel {
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
 
+        textView = TeleprompterTextView()
         textView.isEditable = false
         textView.isSelectable = false
         textView.drawsBackground = false
@@ -173,12 +225,100 @@ class TeleprompterOverlay: NSPanel {
         }) {
             modifierMonitors.append(m)
         }
+
+        // Intercept leftMouseDown BEFORE NSApplication.sendEvent converts
+        // Ctrl+LeftClick into a rightMouseDown event.
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] event in
+            guard let self = self,
+                  self.ctrlCmdHeld && !self.drawingModeActive,
+                  event.modifierFlags.contains(.control),
+                  event.windowNumber == self.windowNumber else { return event }
+
+            // Copy button hit — trigger directly.
+            let locationInTextView = self.textView.convert(event.locationInWindow, from: nil)
+            for btn in self.copyButtons {
+                if btn.frame.contains(locationInTextView) {
+                    _ = btn.target?.perform(btn.action, with: btn)
+                    return nil
+                }
+            }
+
+            // Code run hit — copy and swallow.
+            if self.textView.copyCodeIfHit(at: event) { return nil }
+
+            // Plain text — forward as a clean left-click so NSTextView resets
+            // selection instead of extending it (Cmd strips to "add-to-selection").
+            let clean = NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: event.locationInWindow,
+                modifierFlags: [],
+                timestamp: event.timestamp,
+                windowNumber: event.windowNumber,
+                context: nil,
+                eventNumber: event.eventNumber,
+                clickCount: event.clickCount,
+                pressure: event.pressure
+            ) ?? event
+            self.textView.mouseDown(with: clean)
+            return nil  // swallow — prevents the Ctrl→rightMouseDown conversion
+        }) {
+            modifierMonitors.append(m)
+        }
     }
 
     private func updateMouseEventHandling() {
         let interact = ctrlCmdHeld && !drawingModeActive
         ignoresMouseEvents = !interact
         textView.isSelectable = interact
+        updateCopyButtons()
+    }
+
+    private func updateCopyButtons() {
+        copyButtons.forEach { $0.removeFromSuperview() }
+        copyButtons = []
+
+        guard ctrlCmdHeld && !drawingModeActive,
+              let storage = textView.textStorage,
+              let lm = textView.layoutManager,
+              let tc = textView.textContainer else { return }
+
+        storage.enumerateAttribute(.codeType,
+                                    in: NSRange(location: 0, length: storage.length),
+                                    options: []) { val, range, _ in
+            guard val as? String == "block" else { return }
+
+            let blockText = (storage.string as NSString).substring(with: range)
+            let glyphRange = lm.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+            let inset = self.textView.textContainerInset
+            rect.origin.x += inset.width
+            rect.origin.y += inset.height
+
+            let btn = CopyButton(frame: NSRect(x: rect.maxX - 56, y: rect.minY - 22,
+                                               width: 52, height: 20))
+            btn.codeContent = blockText
+            btn.title = "Copy"
+            btn.bezelStyle = .inline
+            btn.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            btn.contentTintColor = .white
+            btn.wantsLayer = true
+            btn.layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.85).cgColor
+            btn.layer?.cornerRadius = 4
+            btn.target = self
+            btn.action = #selector(copyButtonTapped(_:))
+            self.textView.addSubview(btn)
+            self.copyButtons.append(btn)
+        }
+    }
+
+    @objc private func copyButtonTapped(_ sender: CopyButton) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(sender.codeContent, forType: .string)
+        let original = sender.title
+        sender.title = "✓"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            sender.title = original
+        }
     }
 
     func setDrawingMode(_ active: Bool) {
@@ -257,11 +397,13 @@ private extension TeleprompterOverlay {
                 let codeFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.85, weight: .regular)
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: codeFont,
-                    .foregroundColor: color.withAlphaComponent(0.8)
+                    .foregroundColor: color.withAlphaComponent(0.8),
+                    .codeType: "block"
                 ]
                 let codeText = codeLines.joined(separator: "\n")
                 if !codeText.isEmpty {
-                    result.append(NSAttributedString(string: codeText + "\n", attributes: attrs))
+                    result.append(NSAttributedString(string: codeText, attributes: attrs))
+                    result.append(NSAttributedString(string: "\n"))
                 }
                 continue
             }
@@ -360,8 +502,14 @@ private extension TeleprompterOverlay {
                 font = styledFont(base: baseFont, size: baseFont.pointSize, bold: bold, italic: italic)
             }
             let c = inCode ? color.withAlphaComponent(0.85) : color
-            result.append(NSAttributedString(string: pending,
-                attributes: [.font: font, .foregroundColor: c, .paragraphStyle: style]))
+            if inCode {
+                result.append(NSAttributedString(string: pending,
+                    attributes: [.font: font, .foregroundColor: c, .paragraphStyle: style,
+                                 .codeType: "inline"]))
+            } else {
+                result.append(NSAttributedString(string: pending,
+                    attributes: [.font: font, .foregroundColor: c, .paragraphStyle: style]))
+            }
             pending = ""
         }
 
