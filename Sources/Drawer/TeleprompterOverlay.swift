@@ -437,6 +437,41 @@ private extension TeleprompterOverlay {
                 continue
             }
 
+            // ── Alert block  > [!NOTE|TIP|IMPORTANT|WARNING|CAUTION] ────────────────
+            let alertKeywords = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]
+            if line.hasPrefix("> [!"),
+               let keyword = alertKeywords.first(where: {
+                   line.uppercased().hasPrefix("> [!\($0)]")
+               }) {
+                // Collect subsequent "> " lines as the body
+                var bodyLines: [String] = []
+                while i < lines.count && (lines[i].hasPrefix("> ") || lines[i] == ">") {
+                    bodyLines.append(lines[i].hasPrefix("> ") ? String(lines[i].dropFirst(2)) : "")
+                    i += 1
+                }
+
+                let ac = alertColor(for: keyword)
+                let labelFont = styledFont(base: baseFont, size: baseFont.pointSize, bold: true, italic: false)
+                let bodyStyle = paragraphStyle(spaceBelow: 0, headIndent: 20, firstLineIndent: 0)
+
+                // Label:  ┃ NOTE
+                result.append(NSAttributedString(string: "┃ \(keyword)\n",
+                    attributes: [.font: labelFont, .foregroundColor: ac]))
+
+                // Body lines:  ┃ <text>
+                for bodyLine in bodyLines {
+                    result.append(NSAttributedString(string: "┃ ",
+                        attributes: [.font: baseFont, .foregroundColor: ac]))
+                    result.append(renderInline(bodyLine, baseFont: baseFont,
+                                               color: ac.withAlphaComponent(0.85), style: bodyStyle))
+                    result.append(NSAttributedString(string: "\n",
+                        attributes: [.font: baseFont, .foregroundColor: ac]))
+                }
+                result.append(NSAttributedString(string: "\n",
+                    attributes: [.font: baseFont, .foregroundColor: color]))
+                continue
+            }
+
             // ── Blockquote  > ────────────────────────────────────────────────
             if line.hasPrefix("> ") || line == ">" {
                 let quoteText = line.hasPrefix("> ") ? String(line.dropFirst(2)) : ""
@@ -600,5 +635,16 @@ private extension TeleprompterOverlay {
         s.headIndent = headIndent
         s.firstLineHeadIndent = firstLineIndent
         return s
+    }
+
+    func alertColor(for type: String) -> NSColor {
+        switch type {
+        case "NOTE":      return NSColor(calibratedRed: 0.31, green: 0.51, blue: 0.97, alpha: 1)
+        case "TIP":       return NSColor(calibratedRed: 0.12, green: 0.73, blue: 0.37, alpha: 1)
+        case "IMPORTANT": return NSColor(calibratedRed: 0.62, green: 0.33, blue: 0.97, alpha: 1)
+        case "WARNING":   return NSColor(calibratedRed: 0.97, green: 0.70, blue: 0.14, alpha: 1)
+        case "CAUTION":   return NSColor(calibratedRed: 0.95, green: 0.30, blue: 0.25, alpha: 1)
+        default:          return NSColor(calibratedRed: 0.6,  green: 0.6,  blue: 0.6,  alpha: 1)
+        }
     }
 }
