@@ -90,6 +90,14 @@ enum TeleprompterPreferences {
         set { ud.set(newValue, forKey: prefix + "backgroundOpacity") }
     }
 
+    static var overlayOpacity: Double {
+        get {
+            guard ud.object(forKey: prefix + "overlayOpacity") != nil else { return 1.0 }
+            return ud.double(forKey: prefix + "overlayOpacity")
+        }
+        set { ud.set(newValue, forKey: prefix + "overlayOpacity") }
+    }
+
     static var scrollPositions: [String: Double] {
         get {
             guard let data = ud.data(forKey: prefix + "scrollPositions"),

@@ -56,6 +56,9 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     private var teleprompterBgOpacityRow: NSView!
     private var teleprompterBgOpacityField: NSTextField!
     private var teleprompterBgOpacitySlider: NSSlider!
+    private var teleprompterOverlayOpacityRow: NSView!
+    private var teleprompterOverlayOpacityField: NSTextField!
+    private var teleprompterOverlayOpacitySlider: NSSlider!
     private var teleprompterAutoScrollRow: NSView!
     private var teleprompterAutoScrollCheck: NSButton!
     private var teleprompterSpeedRow: NSView!
@@ -461,6 +464,29 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         content.addSubview(tpBgOpacityRow)
         y -= rs - 4
 
+        // Overlay opacity
+        let tpOverlayOpacityRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
+        teleprompterOverlayOpacityRow = tpOverlayOpacityRow
+        let tpOverlayOpacityLbl = NSTextField(labelWithString: "Overlay opacity:")
+        tpOverlayOpacityLbl.frame = NSRect(x: 0, y: 1, width: 110, height: 20)
+        tpOverlayOpacityLbl.font = NSFont.systemFont(ofSize: 13)
+        tpOverlayOpacityRow.addSubview(tpOverlayOpacityLbl)
+        teleprompterOverlayOpacityField = NSTextField(frame: NSRect(x: 116, y: 0, width: 40, height: 22))
+        teleprompterOverlayOpacityField.stringValue = "1.00"
+        teleprompterOverlayOpacityField.isEditable = true
+        teleprompterOverlayOpacityField.delegate = self
+        tpOverlayOpacityRow.addSubview(teleprompterOverlayOpacityField)
+        teleprompterOverlayOpacitySlider = NSSlider(frame: NSRect(x: 162, y: 0, width: 80, height: 22))
+        teleprompterOverlayOpacitySlider.minValue = 0
+        teleprompterOverlayOpacitySlider.maxValue = 1
+        teleprompterOverlayOpacitySlider.doubleValue = 1.0
+        teleprompterOverlayOpacitySlider.isContinuous = true
+        teleprompterOverlayOpacitySlider.target = self
+        teleprompterOverlayOpacitySlider.action = #selector(teleprompterOverlayOpacitySliderChanged)
+        tpOverlayOpacityRow.addSubview(teleprompterOverlayOpacitySlider)
+        content.addSubview(tpOverlayOpacityRow)
+        y -= rs - 4
+
         // Auto-scroll toggle
         let tpAutoScrollRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
         teleprompterAutoScrollRow = tpAutoScrollRow
@@ -550,6 +576,10 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         } else if field === teleprompterBgOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
             teleprompterBgOpacitySlider.doubleValue = v
             TeleprompterPreferences.backgroundOpacity = v
+            teleprompterOverlay?.applyPreferences()
+        } else if field === teleprompterOverlayOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
+            teleprompterOverlayOpacitySlider.doubleValue = v
+            TeleprompterPreferences.overlayOpacity = v
             teleprompterOverlay?.applyPreferences()
         } else if field === teleprompterWidthField, let w = Double(field.stringValue), w > 0 {
             var f = TeleprompterPreferences.overlayFrame
@@ -648,6 +678,8 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         teleprompterBgColorWell.color = NSColor(teleprompterHex: TeleprompterPreferences.backgroundColorHex) ?? .black
         teleprompterBgOpacityField.stringValue = String(format: "%.2f", TeleprompterPreferences.backgroundOpacity)
         teleprompterBgOpacitySlider.doubleValue = TeleprompterPreferences.backgroundOpacity
+        teleprompterOverlayOpacityField.stringValue = String(format: "%.2f", TeleprompterPreferences.overlayOpacity)
+        teleprompterOverlayOpacitySlider.doubleValue = TeleprompterPreferences.overlayOpacity
         teleprompterAutoScrollCheck.state = TeleprompterPreferences.autoScroll ? .on : .off
         teleprompterSpeedField.stringValue = String(format: "%.1f", TeleprompterPreferences.autoScrollSpeed)
         updateTeleprompterSubcontrols()
@@ -826,6 +858,13 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         teleprompterOverlay?.applyPreferences()
     }
 
+    @objc private func teleprompterOverlayOpacitySliderChanged() {
+        let v = teleprompterOverlayOpacitySlider.doubleValue
+        teleprompterOverlayOpacityField.stringValue = String(format: "%.2f", v)
+        TeleprompterPreferences.overlayOpacity = v
+        teleprompterOverlay?.applyPreferences()
+    }
+
     @objc private func teleprompterAutoScrollToggled() {
         updateTeleprompterSubcontrols()
         let autoScrollOn = teleprompterAutoScrollCheck.state == .on
@@ -846,6 +885,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         teleprompterSizeRow.isHidden = !on
         teleprompterBgColorRow.isHidden = !on
         teleprompterBgOpacityRow.isHidden = !on
+        teleprompterOverlayOpacityRow.isHidden = !on
         teleprompterAutoScrollRow.isHidden = !on
         let autoScrollOn = on && teleprompterAutoScrollCheck.state == .on
         teleprompterSpeedRow.isHidden = !autoScrollOn

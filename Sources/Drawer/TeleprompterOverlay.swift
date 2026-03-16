@@ -81,6 +81,8 @@ class TeleprompterOverlay: NSPanel {
             textView.sizeToFit()
         }
 
+        alphaValue = CGFloat(TeleprompterPreferences.overlayOpacity)
+
         let bgColor = NSColor(teleprompterHex: TeleprompterPreferences.backgroundColorHex) ?? .black
         backgroundView.layer?.backgroundColor = bgColor.withAlphaComponent(
             CGFloat(TeleprompterPreferences.backgroundOpacity)
