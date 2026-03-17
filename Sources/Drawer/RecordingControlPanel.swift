@@ -955,18 +955,11 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         if modeSegment.selectedSegment == 0 {
             // Full screen — use NSScreen physical pixels (SCDisplay.width is in logical points)
             guard let display = content.displays.first else { return }
-            let myBundleID = Bundle.main.bundleIdentifier ?? ""
-            let teleprompterWindowID = UInt32(teleprompterOverlay?.windowNumber ?? -1)
-            let myApp = content.applications.first { $0.bundleIdentifier == myBundleID }
-            let drawerWindowsToKeep = content.windows.filter {
-                $0.owningApplication?.bundleIdentifier == myBundleID &&
-                $0.windowID != teleprompterWindowID
-            }
-            if let app = myApp {
-                filter = SCContentFilter(display: display, excludingApplications: [app], exceptingWindows: drawerWindowsToKeep)
-            } else {
-                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-            }
+            // Full display capture — TeleprompterOverlay and StrokeHUDPanel are excluded via
+            // sharingType = .none. KeyCastOverlay (sharingType = .readOnly) appears in the video.
+            // The old excludingApplications approach blacklisted KeyCastOverlay because NSPanel
+            // at .screenSaver level is never enumerated in SCShareableContent.windows.
+            filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
             let screen = NSScreen.main ?? NSScreen.screens[0]
             let scale = screen.backingScaleFactor
             width = (Int(screen.frame.width * scale) / 2) * 2
