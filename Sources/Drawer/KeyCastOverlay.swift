@@ -58,6 +58,7 @@ class KeyCastOverlay: NSPanel {
 
         isFloatingPanel = true
         level = .screenSaver
+        sharingType = .readOnly   // allow ScreenCaptureKit to capture this window
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true

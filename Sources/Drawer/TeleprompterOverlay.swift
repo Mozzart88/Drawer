@@ -77,6 +77,7 @@ class TeleprompterOverlay: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary]
         title = "Teleprompter"
         ignoresMouseEvents = true
+        sharingType = .none  // hide from screen recordings
 
         setupViews()
         applyPreferences()

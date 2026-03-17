@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import IOKit.hid
 import ScreenCaptureKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -128,6 +129,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             AXIsProcessTrustedWithOptions(opts)
         }
+
+        // Input Monitoring — required on macOS 10.15+ for global .keyDown event delivery.
+        // .flagsChanged arrives without this (modifier keys work), but character keys don't.
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeUnknown {
+            IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        }
     }
 
     @objc func toggleDrawing() {
@@ -221,13 +228,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Key Casting
 
-    private func startKeyCasting() {
+    private func prepareKeyCastOverlay() {
         guard RecordingPreferences.keyCastingEnabled else { return }
-
-        // .keyDown global monitoring requires Accessibility permission.
-        // .flagsChanged works without it, which is why modifiers highlight but keys don't appear.
-        // The user was already prompted at startup; silently skip if they haven't granted it yet.
         guard AXIsProcessTrusted() else { return }
+        guard keyCastOverlay == nil else { return }  // already prepared
 
         let overlay = KeyCastOverlay()
         overlay.keyLifetime = RecordingPreferences.keyCastingLifetime
@@ -238,6 +242,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.moveToSavedPosition()
         overlay.orderFront(nil)
         keyCastOverlay = overlay
+    }
+
+    private func startKeyCasting() {
+        guard RecordingPreferences.keyCastingEnabled else { return }
+
+        // .keyDown global monitoring requires Accessibility permission.
+        // .flagsChanged works without it, which is why modifiers highlight but keys don't appear.
+        // The user was already prompted at startup; silently skip if they haven't granted it yet.
+        guard AXIsProcessTrusted() else { return }
+
+        // Overlay should already exist (prepared before recording started),
+        // but create it now as a fallback for any edge case.
+        if keyCastOverlay == nil { prepareKeyCastOverlay() }
+        guard let overlay = keyCastOverlay else { return }
 
         let handler: (NSEvent) -> Void = { [weak overlay] event in
             DispatchQueue.main.async {
@@ -393,7 +411,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resumeRecording() async {
-        let teleprompterWindowID = await MainActor.run { UInt32(self.teleprompterOverlay?.windowNumber ?? -1) }
+        // Prepare key cast overlay NOW, before SCShareableContent is fetched.
+        await MainActor.run { prepareKeyCastOverlay() }
+
         let dir = RecordingPreferences.saveDirectory
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
@@ -440,17 +460,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 if RecordingPreferences.recordingMode == 0 {
                     guard let display = content.displays.first else { return }
-                    let myBundleID = Bundle.main.bundleIdentifier ?? ""
-                    let myApp = content.applications.first { $0.bundleIdentifier == myBundleID }
-                    let drawerWindowsToKeep = content.windows.filter {
-                        $0.owningApplication?.bundleIdentifier == myBundleID &&
-                        $0.windowID != teleprompterWindowID
-                    }
-                    if let app = myApp {
-                        filter = SCContentFilter(display: display, excludingApplications: [app], exceptingWindows: drawerWindowsToKeep)
-                    } else {
-                        filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-                    }
+                    // Full display capture — excludingApplications:[] captures ALL pixels on screen
+                    // including screenSaver-level panels (KeyCastOverlay) that never appear in
+                    // content.windows. The excludingWindows API only iterates content.windows and
+                    // therefore misses those panels. The teleprompter is hidden from capture via
+                    // sharingType = .none set in TeleprompterOverlay.init().
+                    filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
                     let screen = NSScreen.main ?? NSScreen.screens[0]
                     let scale = screen.backingScaleFactor
                     width = (Int(screen.frame.width * scale) / 2) * 2
