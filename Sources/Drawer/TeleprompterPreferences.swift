@@ -1,7 +1,8 @@
 import AppKit
 
 enum TeleprompterPreferences {
-    private static let ud = UserDefaults.standard
+    static var _defaults: UserDefaults = .standard
+    private static var ud: UserDefaults { _defaults }
     private static let prefix = "drawer.teleprompter."
 
     static var enabled: Bool {

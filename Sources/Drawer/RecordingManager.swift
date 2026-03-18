@@ -17,12 +17,19 @@ class RecordingManager: NSObject {
 
     private let writingQueue = DispatchQueue(label: "com.drawer.recording", qos: .userInitiated)
 
-    private var assetWriter: AVAssetWriter?
+    var makeWriter: (URL, AVFileType) throws -> any VideoWritable = { url, fileType in
+        try AVAssetWriter(outputURL: url, fileType: fileType)
+    }
+    var makeStream: (SCContentFilter, SCStreamConfiguration, SCStreamDelegate?) -> any ScreenCaptureStreamable = { filter, config, delegate in
+        SCStream(filter: filter, configuration: config, delegate: delegate)
+    }
+
+    private var assetWriter: (any VideoWritable)?
     private var videoInput: AVAssetWriterInput?
     private var videoAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var audioInput: AVAssetWriterInput?
 
-    private var stream: SCStream?
+    private var stream: (any ScreenCaptureStreamable)?
     private var captureSession: AVCaptureSession?
 
     private var recordingStartDate: Date = Date()
@@ -57,7 +64,7 @@ class RecordingManager: NSObject {
         let encodeWidth = (width / 2) * 2
         let encodeHeight = (height / 2) * 2
 
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        let writer = try makeWriter(outputURL, .mp4)
 
         // Embed creation date as file-level metadata
         let creationItem = AVMutableMetadataItem()
@@ -140,7 +147,7 @@ class RecordingManager: NSObject {
             config.sourceRect = sourceRect
         }
 
-        let scStream = SCStream(filter: filter, configuration: config, delegate: self)
+        let scStream = makeStream(filter, config, self)
         self.stream = scStream
         try scStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writingQueue)
 
@@ -176,7 +183,7 @@ class RecordingManager: NSObject {
         let encodeHeight = (height / 2) * 2
 
         let fileType: AVFileType = useAlphaChannel ? .mov : .mp4
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
+        let writer = try makeWriter(outputURL, fileType)
         let creationItem = AVMutableMetadataItem()
         creationItem.identifier = .quickTimeMetadataCreationDate
         creationItem.value = ISO8601DateFormatter().string(from: recordingStartDate) as NSString
@@ -305,7 +312,7 @@ class RecordingManager: NSObject {
     private func renderChromakeyFrame() {
         guard state == .recording,
               let writer = assetWriter,
-              writer.status == .writing,
+              writer.status == AVAssetWriter.Status.writing,
               let drawingView = chromakeyDrawingView,
               let pool = chromakeyPixelBufferPool else { return }
 
@@ -412,9 +419,9 @@ class RecordingManager: NSObject {
 
         // finishWriting is async; bridge to structured concurrency
         await withCheckedContinuation { (finish: CheckedContinuation<Void, Never>) in
-            writer.finishWriting { finish.resume() }
+            writer.finishWriting(completionHandler: { finish.resume() })
         }
-        if writer.status == .failed {
+        if writer.status == AVAssetWriter.Status.failed {
             print("RecordingManager: finishWriting failed — \(writer.error?.localizedDescription ?? "unknown error")")
         } else {
             print("RecordingManager: file written successfully")
@@ -436,7 +443,7 @@ extension RecordingManager: SCStreamOutput {
               CMSampleBufferDataIsReady(sampleBuffer),
               let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
               let writer = assetWriter,
-              writer.status == .writing else { return }
+              writer.status == AVAssetWriter.Status.writing else { return }
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard pts.isValid else { return }
@@ -477,7 +484,7 @@ extension RecordingManager: AVCaptureAudioDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard state == .recording,
               let writer = assetWriter,
-              writer.status == .writing,
+              writer.status == AVAssetWriter.Status.writing,
               let audioInput = audioInput else { return }
 
         if !sessionStarted {
