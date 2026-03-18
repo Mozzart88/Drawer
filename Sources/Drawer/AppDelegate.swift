@@ -288,7 +288,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Returns (display string, isInline).
     /// Inline = printable character that should be concatenated directly with neighbours.
     /// Non-inline = special key that gets space-separated from adjacent keys.
-    private static func keyDisplay(for event: NSEvent) -> (String, Bool) {
+    static func keyDisplay(for event: NSEvent) -> (String, Bool) {
         switch event.keyCode {
         case 49:  return ("⎵", false)
         case 36:  return ("↩", false)

@@ -4,6 +4,7 @@ import Carbon
 class HotkeyManager {
     private var hotKeyRefs: [EventHotKeyRef?] = []
     private var eventHandlerRef: EventHandlerRef?
+    private let registrar: HotkeyRegistrar
 
     var toggleDrawing: (() -> Void)?
     var clearScreen: (() -> Void)?
@@ -19,12 +20,14 @@ class HotkeyManager {
          clearScreen: @escaping () -> Void,
          toggleColorWheel: @escaping () -> Void,
          toggleRecording: @escaping () -> Void,
-         toggleGreenScreen: @escaping () -> Void) {
+         toggleGreenScreen: @escaping () -> Void,
+         registrar: HotkeyRegistrar = CarbonHotkeyRegistrar()) {
         self.toggleDrawing = toggleDrawing
         self.clearScreen = clearScreen
         self.toggleColorWheel = toggleColorWheel
         self.toggleRecording = toggleRecording
         self.toggleGreenScreen = toggleGreenScreen
+        self.registrar = registrar
 
         HotkeyManager.shared = self
         registerHotkeys()
@@ -63,13 +66,13 @@ class HotkeyManager {
             return noErr
         }
 
-        InstallEventHandler(
-            GetApplicationEventTarget(),
-            handler,
-            1,
-            &eventType,
-            nil,
-            &eventHandlerRef
+        registrar.installEventHandler(
+            target: registrar.applicationEventTarget(),
+            handler: handler,
+            numTypes: 1,
+            list: &eventType,
+            userData: nil,
+            outRef: &eventHandlerRef
         )
 
         // F9 = kVK_F9 = 101, F10 = kVK_F10 = 109, F8 = kVK_F8 = 100, F7 = kVK_F7 = 98, F5 = kVK_F5 = 96
@@ -88,21 +91,24 @@ class HotkeyManager {
         ]
 
         for (keyCode, modifiers, id) in keys {
-            let hotKeyID = EventHotKeyID(signature: OSType(0x4452_5752), id: id)  // 'DRWR'
-            var hotKeyRef: EventHotKeyRef?
-            RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
-            hotKeyRefs.append(hotKeyRef)
+            let ref = registrar.registerHotKey(
+                keyCode: keyCode,
+                modifiers: modifiers,
+                id: id,
+                target: registrar.applicationEventTarget()
+            )
+            hotKeyRefs.append(ref)
         }
     }
 
     deinit {
         for ref in hotKeyRefs {
             if let ref = ref {
-                UnregisterEventHotKey(ref)
+                registrar.unregisterHotKey(ref)
             }
         }
         if let handlerRef = eventHandlerRef {
-            RemoveEventHandler(handlerRef)
+            registrar.removeEventHandler(handlerRef)
         }
     }
 }

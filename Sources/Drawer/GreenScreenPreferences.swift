@@ -2,16 +2,17 @@ import AppKit
 
 enum GreenScreenPreferences {
     private static let colorKey = "drawer.greenscreen.color"
+    static var _defaults: UserDefaults = .standard
 
     static var color: NSColor {
         get {
-            guard let hex = UserDefaults.standard.string(forKey: colorKey) else {
+            guard let hex = _defaults.string(forKey: colorKey) else {
                 return NSColor(red: 0, green: 1, blue: 0, alpha: 1)
             }
             return NSColor(hex: hex) ?? NSColor(red: 0, green: 1, blue: 0, alpha: 1)
         }
         set {
-            UserDefaults.standard.set(newValue.hexString, forKey: colorKey)
+            _defaults.set(newValue.hexString, forKey: colorKey)
         }
     }
 }

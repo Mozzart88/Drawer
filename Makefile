@@ -1,4 +1,4 @@
-.PHONY: build run install clean
+.PHONY: build run install clean test coverage preset
 
 BINARY = .build/release/Drawer
 APP_DIR = Drawer.app/Contents
@@ -36,6 +36,8 @@ build:
     <string>Drawer needs screen access to record your screen.</string>\n\
     <key>NSMicrophoneUsageDescription</key>\n\
     <string>Drawer needs microphone access to record audio.</string>\n\
+    <key>NSInputMonitoringUsageDescription</key>\n\
+    <string>Drawer needs input monitoring to display key presses during recording.</string>\n\
 </dict>\n\
 </plist>\n' > $(APP_DIR)/Info.plist
 
@@ -46,6 +48,20 @@ run: build
 install: build
 	rm -fr /Applications/Drawer.app
 	cp -r Drawer.app /Applications/Drawer.app
+
+test:
+	swift test
+
+preset:
+	tccutil reset All com.drawer.app
+
+coverage:
+	swift test --enable-code-coverage
+	xcrun llvm-cov report \
+	  .build/debug/DrawerPackageTests.xctest/Contents/MacOS/DrawerPackageTests \
+	  -instr-profile .build/debug/codecov/default.profdata \
+	  --ignore-filename-regex='Tests/' \
+	  2>&1
 
 clean:
 	rm -rf .build Drawer.app

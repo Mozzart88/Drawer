@@ -5,9 +5,10 @@ let package = Package(
     name: "Drawer",
     platforms: [.macOS(.v13)],
     targets: [
-        .executableTarget(
-            name: "Drawer",
+        .target(
+            name: "DrawerCore",
             path: "Sources/Drawer",
+            exclude: ["main.swift"],
             linkerSettings: [
                 .linkedFramework("Carbon"),
                 .linkedFramework("AppKit"),
@@ -17,6 +18,16 @@ let package = Package(
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("IOKit")
             ]
+        ),
+        .executableTarget(
+            name: "Drawer",
+            dependencies: ["DrawerCore"],
+            path: "Sources/DrawerMain"
+        ),
+        .testTarget(
+            name: "DrawerTests",
+            dependencies: ["DrawerCore"],
+            path: "Tests/DrawerTests"
         )
     ]
 )

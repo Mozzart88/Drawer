@@ -1,7 +1,8 @@
 import AppKit
 
 enum RecordingPreferences {
-    private static let defaults = UserDefaults.standard
+    static var _defaults: UserDefaults = .standard
+    private static var defaults: UserDefaults { _defaults }
 
     /// uniqueID of the selected AVCaptureDevice; nil = "None"
     static var audioDeviceUID: String? {

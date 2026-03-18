@@ -5,6 +5,9 @@ enum StrokeSettings {
     private static let widthKey   = "strokeWidth"
     private static let opacityKey = "strokeOpacity"
 
+    static var _defaults: UserDefaults = .standard
+    private static var defaults: UserDefaults { _defaults }
+
     struct Values {
         let color: NSColor
         let width: CGFloat
@@ -12,7 +15,7 @@ enum StrokeSettings {
     }
 
     static func load() -> Values {
-        let defaults = UserDefaults.standard
+        let defaults = StrokeSettings.defaults
         let color: NSColor
         if let data = defaults.data(forKey: colorKey),
            let c = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) {
@@ -26,7 +29,7 @@ enum StrokeSettings {
     }
 
     static func save(color: NSColor, opacity: CGFloat, width: CGFloat) {
-        let defaults = UserDefaults.standard
+        let defaults = StrokeSettings.defaults
         if let data = try? NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: false) {
             defaults.set(data, forKey: colorKey)
         }

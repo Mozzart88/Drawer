@@ -4,9 +4,14 @@ import IOKit.pwr_mgt
 
 class PresentationModeManager {
 
+    private let sleepService: SleepPreventionService
     private var sleepAssertionID: IOPMAssertionID = 0
     private var sleepAssertionActive = false
     private var widgetsWereHidden: Int = 0
+
+    init(sleepService: SleepPreventionService = IOKitSleepPreventionService()) {
+        self.sleepService = sleepService
+    }
 
     func enable() {
         enableDND()
@@ -46,20 +51,16 @@ class PresentationModeManager {
 
     private func preventSleep() {
         guard !sleepAssertionActive else { return }
-        let result = IOPMAssertionCreateWithName(
-            kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            "Drawer screen recording" as CFString,
-            &sleepAssertionID
-        )
-        if result == kIOReturnSuccess {
+        let (success, id) = sleepService.preventSleep(name: "Drawer screen recording")
+        if success {
+            sleepAssertionID = id
             sleepAssertionActive = true
         }
     }
 
     private func allowSleep() {
         guard sleepAssertionActive else { return }
-        IOPMAssertionRelease(sleepAssertionID)
+        sleepService.releaseSleep(id: sleepAssertionID)
         sleepAssertionActive = false
     }
 
@@ -67,13 +68,13 @@ class PresentationModeManager {
 
     private func hideDockAndMenuBar() {
         DispatchQueue.main.async {
-            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
+            NSApp?.presentationOptions = [.autoHideDock, .autoHideMenuBar]
         }
     }
 
     private func restoreDockAndMenuBar() {
         DispatchQueue.main.async {
-            NSApp.presentationOptions = []
+            NSApp?.presentationOptions = []
         }
     }
 
