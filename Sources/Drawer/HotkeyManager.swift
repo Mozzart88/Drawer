@@ -66,7 +66,7 @@ class HotkeyManager {
             return noErr
         }
 
-        registrar.installEventHandler(
+        _ = registrar.installEventHandler(
             target: registrar.applicationEventTarget(),
             handler: handler,
             numTypes: 1,
