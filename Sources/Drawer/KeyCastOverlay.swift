@@ -7,13 +7,7 @@ class KeyCastOverlay: NSPanel {
     var keyFontSize: CGFloat = 20 {
         didSet {
             keyLabel.font = NSFont.systemFont(ofSize: keyFontSize, weight: .medium)
-            applySize(keepTopLeft: true)
-        }
-    }
-
-    var modifierFontSize: CGFloat = 10 {
-        didSet {
-            updateModifiers(currentModifierFlags)
+            modifierIconLabel.font = NSFont.systemFont(ofSize: keyFontSize, weight: .medium)
             applySize(keepTopLeft: true)
         }
     }
@@ -23,11 +17,13 @@ class KeyCastOverlay: NSPanel {
     var demoText: String = "Hello ⎵ World"
 
     private let keyLabel: NSTextField
+    private let modifierIconLabel: NSTextField
+    private var sectionSeparator: NSView?
     private var lastKeyWasSpecial = false
     private var currentModifierFlags: NSEvent.ModifierFlags = []
-    private let modifierPairs: [(UInt, NSTextField)]
+    private var sessionPeakFlags: NSEvent.ModifierFlags = []
     private var clearTimer: Timer?
-    private var divider: NSBox?
+    private var modClearTimer: Timer?
     private var isApplyingSize = false
 
     private func applyBackground() {
@@ -45,9 +41,7 @@ class KeyCastOverlay: NSPanel {
 
     init() {
         keyLabel = NSTextField(labelWithString: "")
-        modifierPairs = KeyCastOverlay.modifierDefs.map { (rawValue, title) in
-            (rawValue, NSTextField(labelWithString: title))
-        }
+        modifierIconLabel = NSTextField(labelWithString: "")
 
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: KeyCastOverlay.overlayWidth, height: 80),
@@ -72,18 +66,14 @@ class KeyCastOverlay: NSPanel {
 
     // MARK: - Layout
 
-    /// Computes the overlay height needed to fit both font sizes comfortably.
+    private func skRowHeight() -> CGFloat { max(28, ceil(keyFontSize) + 8) }
+    private func keyRowHeight() -> CGFloat { max(32, ceil(keyFontSize) + 12) }
+
     private func computeNeededSize() -> NSSize {
-        let w = contentView?.bounds.width ?? KeyCastOverlay.overlayWidth
-        let modAreaH: CGFloat = max(22, ceil(modifierFontSize) + 10)
-        let keyAreaH: CGFloat = max(28, ceil(keyFontSize) + 12)
-        // 8 bottom + modArea + 2 gap + 1 divider + 4 gap + keyArea + 8 top
-        let totalH = 8 + modAreaH + 2 + 1 + 4 + keyAreaH + 8
-        return NSSize(width: w, height: totalH)
+        let h = 6 + skRowHeight() + 1 + keyRowHeight() + 6
+        return NSSize(width: KeyCastOverlay.overlayWidth, height: h)
     }
 
-    /// Resizes the window to fit the current font sizes, then lays out subviews.
-    /// keepTopLeft: when true the top-left corner stays fixed while height grows/shrinks.
     private func applySize(keepTopLeft: Bool) {
         guard !isApplyingSize else { return }
         isApplyingSize = true
@@ -100,90 +90,83 @@ class KeyCastOverlay: NSPanel {
         relayout()
     }
 
-    /// Positions all subviews within the current content bounds,
-    /// with text vertically centred in each zone.
     private func relayout() {
         guard let container = contentView else { return }
         let bounds = container.bounds
+        let w = bounds.width
+        let labelH = ceil(keyFontSize) + 4
+        let skH = skRowHeight()
+        let keyH = keyRowHeight()
 
-        let modAreaH: CGFloat = max(22, ceil(modifierFontSize) + 10)
-        let keyAreaH: CGFloat = max(28, ceil(keyFontSize) + 12)
-        let labelW = bounds.width - 16
+        // SK row — top
+        let skRowY = bounds.height - 6 - skH
+        modifierIconLabel.frame = NSRect(x: 8, y: skRowY + (skH - labelH) / 2, width: w - 16, height: labelH)
 
-        // Modifier row — bottom zone
-        let modY: CGFloat = 8
-        let modLabelH: CGFloat = ceil(modifierFontSize) + 4  // always < modAreaH
-        let modLabelY = modY + (modAreaH - modLabelH) / 2
+        // Separator
+        let sepY = skRowY - 1
+        sectionSeparator?.frame = NSRect(x: 8, y: sepY, width: w - 16, height: 1)
 
-        // Divider
-        let divY = modY + modAreaH + 2
-
-        // Key label — top zone
-        let keyY = divY + 1 + 4
-        let keyLabelH: CGFloat = ceil(keyFontSize) + 4  // always < keyAreaH
-        let keyLabelY = keyY + (keyAreaH - keyLabelH) / 2
-
-        keyLabel.frame = NSRect(x: 8, y: keyLabelY, width: labelW, height: keyLabelH)
-        divider?.frame = NSRect(x: 8, y: divY, width: labelW, height: 1)
-
-        let modW = labelW / CGFloat(modifierPairs.count)
-        for (i, (_, label)) in modifierPairs.enumerated() {
-            label.frame = NSRect(x: 8 + CGFloat(i) * modW, y: modLabelY, width: modW, height: modLabelH)
-        }
+        // Key row — bottom
+        let keyRowY = sepY - keyH
+        keyLabel.frame = NSRect(x: 8, y: keyRowY + (keyH - labelH) / 2, width: w - 16, height: labelH)
     }
 
     private func setupContent() {
-        let container = DraggableView(frame: NSRect(
-            x: 0, y: 0,
-            width: KeyCastOverlay.overlayWidth,
-            height: 80
-        ))
+        let size = computeNeededSize()
+        let container = DraggableView(frame: NSRect(x: 0, y: 0, width: size.width, height: size.height))
         container.wantsLayer = true
         container.layer?.cornerRadius = 10
         contentView = container
         applyBackground()
 
-        keyLabel.font = NSFont.systemFont(ofSize: keyFontSize, weight: .medium)
-        keyLabel.textColor = .white
-        keyLabel.alignment = .center
-        keyLabel.lineBreakMode = .byTruncatingHead
-        keyLabel.isBezeled = false
-        keyLabel.drawsBackground = false
-        keyLabel.isEditable = false
-        keyLabel.isSelectable = false
-        container.addSubview(keyLabel)
-
-        let div = NSBox()
-        div.boxType = .separator
-        div.borderColor = NSColor.white.withAlphaComponent(0.3)
-        container.addSubview(div)
-        divider = div
-
-        for (_, label) in modifierPairs {
-            label.font = NSFont.systemFont(ofSize: modifierFontSize, weight: .regular)
-            label.textColor = NSColor.white.withAlphaComponent(0.5)
+        for label in [modifierIconLabel, keyLabel] {
+            label.font = NSFont.systemFont(ofSize: keyFontSize, weight: .medium)
+            label.textColor = .white
             label.alignment = .center
+            label.lineBreakMode = .byTruncatingHead
             label.isBezeled = false
             label.drawsBackground = false
             label.isEditable = false
             label.isSelectable = false
             container.addSubview(label)
         }
+        modifierIconLabel.textColor = NSColor.white.withAlphaComponent(0.0)  // invisible until pressed
+
+        let sep = NSView()
+        sep.wantsLayer = true
+        sep.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.25).cgColor
+        container.addSubview(sep)
+        sectionSeparator = sep
 
         applySize(keepTopLeft: false)
+    }
+
+    // MARK: - Modifier icon
+
+    private func clearModifierIcon() {
+        modClearTimer?.invalidate()
+        modClearTimer = nil
+        modifierIconLabel.stringValue = ""
+        modifierIconLabel.textColor = NSColor.white.withAlphaComponent(0.0)
     }
 
     // MARK: - Public API
 
     func showKey(_ text: String, inline: Bool = false) {
+        modClearTimer?.invalidate()
+        modClearTimer = nil
         let current = keyLabel.stringValue
         let needsSeparator = !current.isEmpty && (!inline || lastKeyWasSpecial)
         keyLabel.stringValue = current + (needsSeparator ? " " : "") + text
         lastKeyWasSpecial = !inline
         clearTimer?.invalidate()
         clearTimer = Timer.scheduledTimer(withTimeInterval: keyLifetime, repeats: false) { [weak self] _ in
-            self?.keyLabel.stringValue = ""
-            self?.lastKeyWasSpecial = false
+            guard let self else { return }
+            self.clearTimer = nil
+            self.keyLabel.stringValue = ""
+            self.lastKeyWasSpecial = false
+            let anyHeld = KeyCastOverlay.modifierDefs.contains { self.currentModifierFlags.rawValue & $0.0 != 0 }
+            if !anyHeld { self.clearModifierIcon() }
         }
     }
 
@@ -196,12 +179,33 @@ class KeyCastOverlay: NSPanel {
 
     func updateModifiers(_ flags: NSEvent.ModifierFlags) {
         currentModifierFlags = flags
-        for (rawValue, label) in modifierPairs {
-            let active = flags.rawValue & rawValue != 0
-            label.textColor = active ? .white : NSColor.white.withAlphaComponent(0.5)
-            label.font = active
-                ? NSFont.systemFont(ofSize: modifierFontSize, weight: .bold)
-                : NSFont.systemFont(ofSize: modifierFontSize, weight: .regular)
+        let activeSymbols = KeyCastOverlay.modifierDefs
+            .filter { flags.rawValue & $0.0 != 0 }
+            .map { $0.1 }
+            .joined(separator: " ")
+
+        if !activeSymbols.isEmpty {
+            // Accumulate into peak; always display the peak set (never shrink while held)
+            sessionPeakFlags = NSEvent.ModifierFlags(rawValue: sessionPeakFlags.rawValue | flags.rawValue)
+            let peakSymbols = KeyCastOverlay.modifierDefs
+                .filter { sessionPeakFlags.rawValue & $0.0 != 0 }
+                .map { $0.1 }
+                .joined(separator: " ")
+            modifierIconLabel.stringValue = peakSymbols
+            modifierIconLabel.textColor = .white
+            modClearTimer?.invalidate()
+            modClearTimer = nil
+        } else {
+            // All released — dim the peak set, then clear after timeout
+            modifierIconLabel.textColor = NSColor.white.withAlphaComponent(0.4)
+            sessionPeakFlags = []
+            modClearTimer?.invalidate()
+            if clearTimer == nil {
+                modClearTimer = Timer.scheduledTimer(withTimeInterval: keyLifetime, repeats: false) { [weak self] _ in
+                    self?.modClearTimer = nil
+                    self?.clearModifierIcon()
+                }
+            }
         }
     }
 

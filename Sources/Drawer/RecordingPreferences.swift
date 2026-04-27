@@ -85,15 +85,6 @@ enum RecordingPreferences {
         set { defaults.set(Double(newValue), forKey: "drawer.recording.keyCastingKeyFontSize") }
     }
 
-    /// Font size for the modifier-key row. Default 10.
-    static var keyCastingModifierFontSize: CGFloat {
-        get {
-            let v = defaults.double(forKey: "drawer.recording.keyCastingModifierFontSize")
-            return v > 0 ? CGFloat(v) : 10
-        }
-        set { defaults.set(Double(newValue), forKey: "drawer.recording.keyCastingModifierFontSize") }
-    }
-
     /// RGB components (sRGB, 0–1). Stored as "r,g,b". Default black.
     static var keyCastingBgColor: NSColor {
         get {
