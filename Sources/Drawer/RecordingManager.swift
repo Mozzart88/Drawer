@@ -64,7 +64,7 @@ class RecordingManager: NSObject {
         let encodeWidth = (width / 2) * 2
         let encodeHeight = (height / 2) * 2
 
-        let writer = try makeWriter(outputURL, .mp4)
+        let writer = try makeWriter(outputURL, .mov)
 
         // Embed creation date as file-level metadata
         let creationItem = AVMutableMetadataItem()
@@ -182,7 +182,7 @@ class RecordingManager: NSObject {
         let encodeWidth = (width / 2) * 2
         let encodeHeight = (height / 2) * 2
 
-        let fileType: AVFileType = useAlphaChannel ? .mov : .mp4
+        let fileType: AVFileType = .mov
         let writer = try makeWriter(outputURL, fileType)
         let creationItem = AVMutableMetadataItem()
         creationItem.identifier = .quickTimeMetadataCreationDate

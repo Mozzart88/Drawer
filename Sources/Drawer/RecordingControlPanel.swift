@@ -73,7 +73,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         let dir = RecordingPreferences.saveDirectory
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mp4")
+        outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mov")
 
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 1060),
@@ -170,7 +170,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         alphaChannelRow = alphaRow
         alphaChannelCheck = NSButton(frame: NSRect(x: 0, y: 0, width: cw - 16, height: 22))
         alphaChannelCheck.setButtonType(.switch)
-        alphaChannelCheck.title = "Use Alpha Channel (HEVC, exports .mov)"
+        alphaChannelCheck.title = "Use Alpha Channel (HEVC with transparency)"
         alphaChannelCheck.target = self
         alphaChannelCheck.action = #selector(alphaChannelToggled)
         alphaRow.addSubview(alphaChannelCheck)
@@ -770,8 +770,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     }
 
     private func updateOutputURLExtension() {
-        let useAlpha = virtualChromakeyCheck.state == .on && alphaChannelCheck.state == .on
-        let ext = useAlpha ? "mov" : "mp4"
+        let ext = "mov"
         outputURL = outputURL.deletingPathExtension().appendingPathExtension(ext)
         outputPathField.stringValue = outputURL.path
     }
