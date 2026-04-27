@@ -15,21 +15,14 @@ struct KeyCastOverlayTests {
     func showKey_setsLabelText() {
         let overlay = makeOverlay()
         overlay.showKey("A", inline: true)
-        // The keyLabel text should contain "A"
-        // We access it via the overlay's showDemoText / showKey public API
-        // Since keyLabel is private, we test via showKey idempotence
         overlay.showKey("B", inline: true)
-        // After two inline keys, the label should have both
-        // This exercises the non-inline path too
         overlay.showKey("↩", inline: false)
     }
 
     @Test("showKey inline appends without space when no previous content")
     func showKey_inline_appendsWithoutSpaceWhenEmpty() {
         let overlay = makeOverlay()
-        // First inline key on empty overlay
         overlay.showKey("x", inline: true)
-        // Subsequent inline key should concatenate
         overlay.showKey("y", inline: true)
     }
 
@@ -37,7 +30,6 @@ struct KeyCastOverlayTests {
     func showKey_nonInline_addsSeparator() {
         let overlay = makeOverlay()
         overlay.showKey("a", inline: true)
-        // non-inline after inline should add a space separator
         overlay.showKey("↩", inline: false)
     }
 
@@ -65,13 +57,6 @@ struct KeyCastOverlayTests {
         let overlay = makeOverlay()
         overlay.keyFontSize = 32
         #expect(overlay.keyFontSize == 32)
-    }
-
-    @Test("modifierFontSize didSet triggers resize without crash")
-    func modifierFontSizeDidSet_triggersResize() {
-        let overlay = makeOverlay()
-        overlay.modifierFontSize = 14
-        #expect(overlay.modifierFontSize == 14)
     }
 
     @Test("overlayBackgroundColor didSet updates background")

@@ -21,8 +21,6 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     private var keyCastLifetimeRow: NSView!
     private var keyCastKeyFontField: NSTextField!
     private var keyCastKeyFontRow: NSView!
-    private var keyCastModFontField: NSTextField!
-    private var keyCastModFontRow: NSView!
     private var keyCastBgColorWell: NSColorWell!
     private var keyCastBgColorRow: NSView!
     private var keyCastBgOpacityField: NSTextField!
@@ -76,7 +74,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         outputURL = dir.appendingPathComponent("Recording-\(formatter.string(from: Date())).mov")
 
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 1060),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 1026),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -95,7 +93,7 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
     // MARK: - UI Setup
 
     private func setupUI() {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 1060))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 1026))
         contentView = content
 
         let lx: CGFloat = 10
@@ -221,25 +219,6 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         keyFontPtLbl.font = NSFont.systemFont(ofSize: 13)
         keyFontRow.addSubview(keyFontPtLbl)
         content.addSubview(keyFontRow)
-        y -= rs - 4
-
-        // Modifier font size: [field] pt  (indented row)
-        let modFontRow = NSView(frame: NSRect(x: cx + 16, y: y, width: cw - 16, height: 22))
-        keyCastModFontRow = modFontRow
-        let modFontLbl = NSTextField(labelWithString: "Modifier font size:")
-        modFontLbl.frame = NSRect(x: 0, y: 1, width: 120, height: 20)
-        modFontLbl.font = NSFont.systemFont(ofSize: 13)
-        modFontRow.addSubview(modFontLbl)
-        keyCastModFontField = NSTextField(frame: NSRect(x: 126, y: 0, width: 50, height: 22))
-        keyCastModFontField.stringValue = "10"
-        keyCastModFontField.isEditable = true
-        keyCastModFontField.delegate = self
-        modFontRow.addSubview(keyCastModFontField)
-        let modFontPtLbl = NSTextField(labelWithString: "pt")
-        modFontPtLbl.frame = NSRect(x: 182, y: 1, width: 30, height: 20)
-        modFontPtLbl.font = NSFont.systemFont(ofSize: 13)
-        modFontRow.addSubview(modFontPtLbl)
-        content.addSubview(modFontRow)
         y -= rs - 4
 
         // BG color: [color well]  (indented row)
@@ -554,8 +533,6 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         if let overlay = keyCastPreview {
             if field === keyCastKeyFontField, let v = Double(field.stringValue), v > 0 {
                 overlay.keyFontSize = CGFloat(v)
-            } else if field === keyCastModFontField, let v = Double(field.stringValue), v > 0 {
-                overlay.modifierFontSize = CGFloat(v)
             } else if field === keyCastBgOpacityField, let v = Double(field.stringValue), (0...1).contains(v) {
                 keyCastBgOpacitySlider.doubleValue = v
                 overlay.overlayBackgroundOpacity = CGFloat(v)
@@ -648,14 +625,12 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         keyCastCheck.state = keyCastOn ? .on : .off
         keyCastLifetimeField.stringValue = "\(RecordingPreferences.keyCastingLifetime)"
         keyCastKeyFontField.stringValue = "\(Int(RecordingPreferences.keyCastingKeyFontSize))"
-        keyCastModFontField.stringValue = "\(Int(RecordingPreferences.keyCastingModifierFontSize))"
         keyCastBgColorWell.color = RecordingPreferences.keyCastingBgColor
         keyCastBgOpacityField.stringValue = "\(RecordingPreferences.keyCastingBgOpacity)"
         keyCastBgOpacitySlider.doubleValue = Double(RecordingPreferences.keyCastingBgOpacity)
         keyCastDemoTextField.stringValue = RecordingPreferences.keyCastingDemoText
         keyCastLifetimeRow.isHidden = !keyCastOn
         keyCastKeyFontRow.isHidden = !keyCastOn
-        keyCastModFontRow.isHidden = !keyCastOn
         keyCastBgColorRow.isHidden = !keyCastOn
         keyCastBgOpacityRow.isHidden = !keyCastOn
         keyCastDemoTextRow.isHidden = !keyCastOn
@@ -779,7 +754,6 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         let on = keyCastCheck.state == .on
         keyCastLifetimeRow.isHidden = !on
         keyCastKeyFontRow.isHidden = !on
-        keyCastModFontRow.isHidden = !on
         keyCastBgColorRow.isHidden = !on
         keyCastBgOpacityRow.isHidden = !on
         keyCastDemoTextRow.isHidden = !on
@@ -901,9 +875,6 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         if let size = Double(keyCastKeyFontField.stringValue), size > 0 {
             overlay.keyFontSize = CGFloat(size)
         }
-        if let size = Double(keyCastModFontField.stringValue), size > 0 {
-            overlay.modifierFontSize = CGFloat(size)
-        }
         overlay.overlayBackgroundColor = keyCastBgColorWell.color
         overlay.overlayBackgroundOpacity = CGFloat(Double(keyCastBgOpacityField.stringValue) ?? 0.75)
         overlay.demoText = keyCastDemoTextField.stringValue.isEmpty
@@ -994,9 +965,6 @@ class RecordingControlPanel: NSPanel, NSTextFieldDelegate {
         }
         if let size = Double(keyCastKeyFontField.stringValue), size > 0 {
             RecordingPreferences.keyCastingKeyFontSize = CGFloat(size)
-        }
-        if let size = Double(keyCastModFontField.stringValue), size > 0 {
-            RecordingPreferences.keyCastingModifierFontSize = CGFloat(size)
         }
         RecordingPreferences.keyCastingBgColor = keyCastBgColorWell.color
         RecordingPreferences.keyCastingBgOpacity = CGFloat(Double(keyCastBgOpacityField.stringValue) ?? 0.75)

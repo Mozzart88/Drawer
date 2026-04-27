@@ -149,19 +149,6 @@ struct RecordingPreferencesTests {
         #expect(RecordingPreferences.keyCastingKeyFontSize == 36)
     }
 
-    @Test("keyCastingModifierFontSize defaults to 10")
-    func keyCastingModifierFontSize_default10() {
-        setUp()
-        #expect(RecordingPreferences.keyCastingModifierFontSize == 10)
-    }
-
-    @Test("keyCastingModifierFontSize round-trip")
-    func keyCastingModifierFontSize_roundTrip() {
-        setUp()
-        RecordingPreferences.keyCastingModifierFontSize = 14
-        #expect(RecordingPreferences.keyCastingModifierFontSize == 14)
-    }
-
     @Test("keyCastingBgColor defaults to black")
     func keyCastingBgColor_defaultBlack() {
         setUp()
